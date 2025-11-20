@@ -4,7 +4,7 @@ services:
     container_name: prometheus
     user: "${PROMETHEUS_UID:-65534}:${PROMETHEUS_GID:-65534}"
     restart: unless-stopped
-    network_mode: "service:tailscale"
+    network_mode: "service:tailscale-prometheus"
     env_file:
       - .env
     volumes:
@@ -20,15 +20,46 @@ services:
       - --web.console.libraries=/usr/share/prometheus/console_libraries
       - --web.console.templates=/usr/share/prometheus/consoles
       - --web.enable-lifecycle
-  tailscale:
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    user: "${GRAFANA_UID:-472}:${GRAFANA_GID:-472}"
+    restart: unless-stopped
+    network_mode: "service:tailscale-grafana"
+    env_file:
+      - .env
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+    volumes:
+      - ./data/grafana:/var/lib/grafana:rw
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+  tailscale-prometheus:
     image: tailscale/tailscale:stable
     hostname: prometheus
     environment:
       - TS_SERVE_CONFIG=/config/prometheus.json
       - TS_STATE_DIR=/var/lib/tailscale
     volumes:
-      - ./tailscale/state:/var/lib/tailscale
-      - ./tailscale/config:/config
+      - ./tailscale-prometheus/state:/var/lib/tailscale
+      - ./tailscale-prometheus/config:/config
+      - /dev/net/tun:/dev/net/tun
+    env_file:
+      - .env
+    cap_add:
+      - net_admin
+      - sys_module
+    restart: unless-stopped
+  tailscale-grafana:
+    image: tailscale/tailscale:stable
+    hostname: grafana
+    environment:
+      - TS_SERVE_CONFIG=/config/grafana.json
+      - TS_STATE_DIR=/var/lib/tailscale
+    volumes:
+      - ./tailscale-grafana/state:/var/lib/tailscale
+      - ./tailscale-grafana/config:/config
       - /dev/net/tun:/dev/net/tun
     env_file:
       - .env
