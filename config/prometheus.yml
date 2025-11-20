@@ -14,12 +14,6 @@ scrape_configs:
     metrics_path: /api/v1/allmetrics
     params:
       format: ['prometheus']
-    static_configs:
-      - targets:
-          - 'r7525-01-netdata:19999'
-        labels:
-          node: 'R7525_01'
-      - targets:
-          - 'rx2540m4-01-netdata:19999'
-        labels:
-          node: 'RX2540M4_01'
+    file_sd_configs:
+      - files:
+          - /tmp/prometheus-file-sd/netdata.json
