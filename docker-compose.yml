@@ -11,6 +11,7 @@ services:
       - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./config/rules:/etc/prometheus/rules:ro
       - ./config/prometheus-entrypoint.sh:/etc/prometheus/entrypoint.sh:ro
+      - ./config/file-sd:/tmp/prometheus-file-sd:rw
     entrypoint: ["/bin/sh", "/etc/prometheus/entrypoint.sh"]
     command:
       - --config.file=/etc/prometheus/prometheus.yml
