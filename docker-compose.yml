@@ -2,6 +2,7 @@ services:
   prometheus:
     image: prom/prometheus:main
     container_name: prometheus
+    user: "${PROMETHEUS_UID:-65534}:${PROMETHEUS_GID:-65534}"
     restart: unless-stopped
     network_mode: "service:tailscale"
     env_file:
