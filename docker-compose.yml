@@ -3,14 +3,32 @@ services:
     image: prom/prometheus:main
     container_name: prometheus
     restart: unless-stopped
+    network_mode: "service:tailscale"
     ports:
       - "9090:9090"
     volumes:
       - ./data:/prometheus:rw
       - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./config/rules:/etc/prometheus/rules:ro
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
       - --web.console.libraries=/usr/share/prometheus/console_libraries
       - --web.console.templates=/usr/share/prometheus/consoles
       - --web.enable-lifecycle
+  tailscale:
+    image: tailscale/tailscale:stable
+    hostname: prometheus
+    environment:
+      - TS_SERVE_CONFIG=/config/gitea.json
+      - TS_STATE_DIR=/var/lib/tailscale
+    volumes:
+      - ./tailscale/state:/var/lib/tailscale
+      - ./tailscale/config:/config
+      - /dev/net/tun:/dev/net/tun
+    env_file:
+      - .env
+    cap_add:
+      - net_admin
+      - sys_module
+    restart: unless-stopped
