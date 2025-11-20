@@ -9,13 +9,13 @@ services:
       - .env
     volumes:
       - ./data:/prometheus:rw
-      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./config/rules:/etc/prometheus/rules:ro
-      - ./config/prometheus-entrypoint.sh:/etc/prometheus/entrypoint.sh:ro
+      - ./config/prometheus.yml:/prom-config/prometheus.yml:ro
+      - ./config/rules:/prom-config/rules:ro
+      - ./config/prometheus-entrypoint.sh:/prom-config/entrypoint.sh:ro
       - ./config/file-sd:/tmp/prometheus-file-sd:rw
-    entrypoint: ["/bin/sh", "/etc/prometheus/entrypoint.sh"]
+    entrypoint: ["/bin/sh", "/prom-config/entrypoint.sh"]
     command:
-      - --config.file=/etc/prometheus/prometheus.yml
+      - --config.file=/prom-config/prometheus.yml
       - --storage.tsdb.path=/prometheus
       - --web.console.libraries=/usr/share/prometheus/console_libraries
       - --web.console.templates=/usr/share/prometheus/consoles
