@@ -21,7 +21,7 @@ services:
     image: tailscale/tailscale:stable
     hostname: prometheus
     environment:
-      - TS_SERVE_CONFIG=/config/gitea.json
+      - TS_SERVE_CONFIG=/config/prometheus.json
       - TS_STATE_DIR=/var/lib/tailscale
     volumes:
       - ./tailscale/state:/var/lib/tailscale
