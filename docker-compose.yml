@@ -27,7 +27,8 @@ services:
     env_file:
       - .env
     extra_hosts:
-      - "r7525-netdata:${R7525_NETDATA_IP}"
+      - "r7525-01-netdata:${R7525_01_NETDATA_IP}"
+      - "rx2540m4-01-netdata:${RX2540M4_01_NETDATA_IP}"
     cap_add:
       - net_admin
       - sys_module
