@@ -33,7 +33,7 @@ add_target() {
   fi
 
   if [ -n "${JSON_COMMA:-}" ]; then
-    printf '%s' "${JSON_COMMA}"
+    printf '%b' "${JSON_COMMA}"
   fi
 
   cat <<EOF
