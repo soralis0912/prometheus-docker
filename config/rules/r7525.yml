@@ -1,0 +1,19 @@
+groups:
+  - name: r7525-usage
+    rules:
+      - record: node:cpu_usage_percent
+        expr: sum by (node) (100 - netdata_system_cpu_percentage_average{job="netdata", dimension="idle"})
+      - record: node:memory_used_percent
+        expr: |
+          100 * sum by (node) (netdata_system_ram_MiB_average{job="netdata", dimension=~"used|cached|buffers"})
+            /
+          sum by (node) (netdata_system_ram_MiB_average{job="netdata", dimension=~"used|cached|buffers|free"})
+      - record: node:memory_used_no_cache_percent
+        expr: |
+          100 * sum by (node) (netdata_system_ram_MiB_average{job="netdata", dimension="used"})
+            /
+          sum by (node) (netdata_system_ram_MiB_average{job="netdata", dimension=~"used|cached|buffers|free"})
+      - record: node:network_receive_mbps
+        expr: sum by (node) (netdata_system_net_kilobits_persec_average{job="netdata", dimension="received"}) / 1000
+      - record: node:network_transmit_mbps
+        expr: sum by (node) (netdata_system_net_kilobits_persec_average{job="netdata", dimension="sent"}) / 1000

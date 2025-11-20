@@ -4,8 +4,6 @@ services:
     container_name: prometheus
     restart: unless-stopped
     network_mode: "service:tailscale"
-    ports:
-      - "9090:9090"
     volumes:
       - ./data:/prometheus:rw
       - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
@@ -28,6 +26,8 @@ services:
       - /dev/net/tun:/dev/net/tun
     env_file:
       - .env
+    extra_hosts:
+      - "r7525-netdata:${R7525_NETDATA_IP}"
     cap_add:
       - net_admin
       - sys_module
