@@ -4,6 +4,9 @@ services:
     container_name: prometheus
     restart: unless-stopped
     network_mode: "service:tailscale"
+    extra_hosts:
+      - "r7525-01-netdata:${R7525_01_NETDATA_IP}"
+      - "rx2540m4-01-netdata:${RX2540M4_01_NETDATA_IP}"
     volumes:
       - ./data:/prometheus:rw
       - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
@@ -26,9 +29,6 @@ services:
       - /dev/net/tun:/dev/net/tun
     env_file:
       - .env
-    extra_hosts:
-      - "r7525-01-netdata:${R7525_01_NETDATA_IP}"
-      - "rx2540m4-01-netdata:${RX2540M4_01_NETDATA_IP}"
     cap_add:
       - net_admin
       - sys_module
