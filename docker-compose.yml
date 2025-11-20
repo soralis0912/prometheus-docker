@@ -4,13 +4,14 @@ services:
     container_name: prometheus
     restart: unless-stopped
     network_mode: "service:tailscale"
-    extra_hosts:
-      - "r7525-01-netdata:${R7525_01_NETDATA_IP}"
-      - "rx2540m4-01-netdata:${RX2540M4_01_NETDATA_IP}"
+    env_file:
+      - .env
     volumes:
       - ./data:/prometheus:rw
       - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./config/rules:/etc/prometheus/rules:ro
+      - ./config/prometheus-entrypoint.sh:/etc/prometheus/entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/etc/prometheus/entrypoint.sh"]
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
