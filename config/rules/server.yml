@@ -23,3 +23,5 @@ groups:
         expr: sum by (node) (netdata_system_net_kilobits_persec_average{job="netdata", dimension="received"}) / 1000
       - record: node:network_transmit_mbps
         expr: sum by (node) (abs(netdata_system_net_kilobits_persec_average{job="netdata", dimension="sent"})) / 1000
+      - record: node:btrfs_used_gib
+        expr: sum by (node, filesystem_label) (netdata_btrfs_data_MiB_average{job="netdata", dimension="used"}) / 1024

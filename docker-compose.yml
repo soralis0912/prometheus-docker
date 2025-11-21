@@ -34,10 +34,11 @@ services:
       - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
       - GF_SERVER_PROTOCOL=${GRAFANA_SERVER_PROTOCOL:-http}
       - GF_SERVER_DOMAIN=${GRAFANA_SERVER_DOMAIN:-grafana}
-      - GF_SERVER_ROOT_URL=${GRAFANA_SERVER_ROOT_URL:-%(protocol)://%(domain)/}
+      - GF_SERVER_ROOT_URL=${GRAFANA_SERVER_ROOT_URL:-%(protocol)s://%(domain)s:%(http_port)s/}
     volumes:
       - ./data/grafana:/var/lib/grafana:rw
       - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./config/grafana/custom.ini:/etc/grafana/grafana.ini:ro
   tailscale-prometheus:
     image: tailscale/tailscale:stable
     hostname: prometheus
