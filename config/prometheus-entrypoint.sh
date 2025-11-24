@@ -82,8 +82,15 @@ mkdir -p "${SD_DIR}"
 {
   printf '[\n'
   JSON_COMMA=''
-  add_target "${R7525_01_NETDATA_IP:-}" "R7525_01"
-  add_target "${RX2540M4_01_NETDATA_IP:-}" "RX2540M4_01"
+  # Auto-add every *_NETDATA_IP environment variable as a Netdata target.
+  env | sort | while IFS='=' read -r name value; do
+    case "${name}" in
+      *_NETDATA_IP)
+        label="${name%_NETDATA_IP}"
+        add_target "${value}" "${label}"
+        ;;
+    esac
+  done
   printf ']\n'
 } > "${SD_FILE}"
 
