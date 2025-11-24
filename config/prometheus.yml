@@ -17,3 +17,12 @@ scrape_configs:
     file_sd_configs:
       - files:
           - /tmp/prometheus-file-sd/netdata.json
+  - job_name: 'coder'
+    scrape_interval: 15s
+    scheme: https
+    metrics_path: /prometheus
+    tls_config:
+      insecure_skip_verify: true
+    file_sd_configs:
+      - files:
+          - /tmp/prometheus-file-sd/coder.json
