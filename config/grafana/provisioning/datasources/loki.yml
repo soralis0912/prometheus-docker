@@ -1,0 +1,16 @@
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    type: loki
+    access: proxy
+    orgId: 1
+    # Grafana sits in the tailscale-grafana network namespace, which is on this
+    # compose network, so the service name resolves.
+    url: http://loki:3100
+    isDefault: false
+    jsonData:
+      maxLines: 5000
+      # FortiGate sends JSON; Loki keeps the device's own line as the log body.
+      derivedFields: []
+    editable: false

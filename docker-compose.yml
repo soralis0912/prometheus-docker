@@ -39,6 +39,28 @@ services:
       - ./data/grafana:/var/lib/grafana:rw
       - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./config/grafana/custom.ini:/etc/grafana/grafana.ini:ro
+  loki:
+    image: grafana/loki:3.7.6
+    container_name: loki
+    user: "${LOKI_UID:-65534}:${LOKI_GID:-65534}"
+    restart: unless-stopped
+    env_file:
+      - .env
+    # Loopback only. syslog-docker's Alloy shares the host network namespace
+    # and pushes here; nothing on the LAN can reach it.
+    ports:
+      - "127.0.0.1:3100:3100"
+    volumes:
+      - ./config/loki/loki.yml:/etc/loki/loki.yml:ro
+      - ./data/loki:/loki:rw
+    command:
+      - -config.file=/etc/loki/loki.yml
+      - -config.expand-env=true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
   snmp-exporter:
     image: prom/snmp-exporter:latest
     container_name: snmp-exporter
