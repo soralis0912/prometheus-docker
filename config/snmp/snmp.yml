@@ -1,0 +1,409 @@
+# snmp_exporter configuration for FortiGate (FortiOS).
+#
+# Hand-written against FORTINET-FORTIGATE-MIB (enterprise 1.3.6.1.4.1.12356.101)
+# plus the standard SNMPv2-MIB / IF-MIB, so the generator and Fortinet's MIB
+# archive are not needed to rebuild this file.
+#
+# This file is a template. config/snmp-entrypoint.sh substitutes the
+# placeholder below and writes the rendered config inside the container before
+# starting the exporter, the same way prometheus-entrypoint.sh builds file_sd.
+#
+# snmp_exporter's own --config.expand-environment-variables flag does NOT reach
+# the community field (verified against 0.30.1: the literal "${...}" is sent as
+# the community and the FortiGate silently drops the request), which is why the
+# rendering happens in the entrypoint instead.
+
+auths:
+  fortigate_v2:
+    community: "${FORTIGATE_SNMP_COMMUNITY}"
+    security_level: noAuthNoPriv
+    auth_protocol: MD5
+    priv_protocol: DES
+    version: 2
+
+modules:
+  fortigate:
+    walk:
+      # SNMPv2-MIB - identity and uptime
+      - 1.3.6.1.2.1.1.1                     # sysDescr
+      - 1.3.6.1.2.1.1.3                     # sysUpTime
+      - 1.3.6.1.2.1.1.5                     # sysName
+      # FORTINET-FORTIGATE-MIB
+      - 1.3.6.1.4.1.12356.101.4.1           # fgSystemInfo
+      - 1.3.6.1.4.1.12356.101.4.3.2         # fgHwSensorTable
+      - 1.3.6.1.4.1.12356.101.4.4.2         # fgProcessorTable
+      - 1.3.6.1.4.1.12356.101.3.1.1         # fgVdNumber
+      - 1.3.6.1.4.1.12356.101.3.2.1         # fgVdTable
+      - 1.3.6.1.4.1.12356.101.12.1          # fgVpnInfo
+      - 1.3.6.1.4.1.12356.101.12.2.2        # fgVpnTunTable
+      - 1.3.6.1.4.1.12356.101.13.1          # fgHaInfo
+      - 1.3.6.1.4.1.12356.101.13.2.1        # fgHaStatsTable
+      # IF-MIB - only the columns that are actually charted
+      - 1.3.6.1.2.1.2.2.1.2                 # ifDescr
+      - 1.3.6.1.2.1.2.2.1.3                 # ifType
+      - 1.3.6.1.2.1.2.2.1.4                 # ifMtu
+      - 1.3.6.1.2.1.2.2.1.7                 # ifAdminStatus
+      - 1.3.6.1.2.1.2.2.1.8                 # ifOperStatus
+      - 1.3.6.1.2.1.2.2.1.13                # ifInDiscards
+      - 1.3.6.1.2.1.2.2.1.14                # ifInErrors
+      - 1.3.6.1.2.1.2.2.1.19                # ifOutDiscards
+      - 1.3.6.1.2.1.2.2.1.20                # ifOutErrors
+      - 1.3.6.1.2.1.31.1.1.1.1              # ifName
+      - 1.3.6.1.2.1.31.1.1.1.6              # ifHCInOctets
+      - 1.3.6.1.2.1.31.1.1.1.7              # ifHCInUcastPkts
+      - 1.3.6.1.2.1.31.1.1.1.10             # ifHCOutOctets
+      - 1.3.6.1.2.1.31.1.1.1.11             # ifHCOutUcastPkts
+      - 1.3.6.1.2.1.31.1.1.1.15             # ifHighSpeed
+      - 1.3.6.1.2.1.31.1.1.1.18             # ifAlias
+
+    metrics:
+      # ---------------------------------------------------------------- system
+      - name: sysDescr
+        oid: 1.3.6.1.2.1.1.1
+        type: DisplayString
+        help: Device description - SNMPv2-MIB::sysDescr
+      - name: sysName
+        oid: 1.3.6.1.2.1.1.5
+        type: DisplayString
+        help: Device name - SNMPv2-MIB::sysName
+      - name: sysUpTime
+        oid: 1.3.6.1.2.1.1.3
+        type: gauge
+        help: Time since the network management portion of the system was last re-initialized, in hundredths of a second - SNMPv2-MIB::sysUpTime
+
+      - name: fgSysVersion
+        oid: 1.3.6.1.4.1.12356.101.4.1.1
+        type: DisplayString
+        help: Firmware version - FORTINET-FORTIGATE-MIB::fgSysVersion
+      - name: fgSysCpuUsage
+        oid: 1.3.6.1.4.1.12356.101.4.1.3
+        type: gauge
+        help: Current CPU usage percentage - FORTINET-FORTIGATE-MIB::fgSysCpuUsage
+      - name: fgSysMemUsage
+        oid: 1.3.6.1.4.1.12356.101.4.1.4
+        type: gauge
+        help: Current memory usage percentage - FORTINET-FORTIGATE-MIB::fgSysMemUsage
+      - name: fgSysMemCapacity
+        oid: 1.3.6.1.4.1.12356.101.4.1.5
+        type: gauge
+        help: Total physical memory in KB - FORTINET-FORTIGATE-MIB::fgSysMemCapacity
+      - name: fgSysDiskUsage
+        oid: 1.3.6.1.4.1.12356.101.4.1.6
+        type: gauge
+        help: Used hard disk space in MB - FORTINET-FORTIGATE-MIB::fgSysDiskUsage
+      - name: fgSysDiskCapacity
+        oid: 1.3.6.1.4.1.12356.101.4.1.7
+        type: gauge
+        help: Total hard disk capacity in MB - FORTINET-FORTIGATE-MIB::fgSysDiskCapacity
+      - name: fgSysSesCount
+        oid: 1.3.6.1.4.1.12356.101.4.1.8
+        type: gauge
+        help: Number of active IPv4 sessions - FORTINET-FORTIGATE-MIB::fgSysSesCount
+      - name: fgSysLowMemUsage
+        oid: 1.3.6.1.4.1.12356.101.4.1.9
+        type: gauge
+        help: Current lower memory usage percentage - FORTINET-FORTIGATE-MIB::fgSysLowMemUsage
+      - name: fgSysLowMemCapacity
+        oid: 1.3.6.1.4.1.12356.101.4.1.10
+        type: gauge
+        help: Total lower memory in KB - FORTINET-FORTIGATE-MIB::fgSysLowMemCapacity
+      - name: fgSysSesRate1
+        oid: 1.3.6.1.4.1.12356.101.4.1.11
+        type: gauge
+        help: IPv4 session setup rate averaged over the last minute - FORTINET-FORTIGATE-MIB::fgSysSesRate1
+      - name: fgSysSesRate10
+        oid: 1.3.6.1.4.1.12356.101.4.1.12
+        type: gauge
+        help: IPv4 session setup rate averaged over the last 10 minutes - FORTINET-FORTIGATE-MIB::fgSysSesRate10
+      - name: fgSysSesRate30
+        oid: 1.3.6.1.4.1.12356.101.4.1.13
+        type: gauge
+        help: IPv4 session setup rate averaged over the last 30 minutes - FORTINET-FORTIGATE-MIB::fgSysSesRate30
+      - name: fgSysSesRate60
+        oid: 1.3.6.1.4.1.12356.101.4.1.14
+        type: gauge
+        help: IPv4 session setup rate averaged over the last 60 minutes - FORTINET-FORTIGATE-MIB::fgSysSesRate60
+      - name: fgSysSes6Count
+        oid: 1.3.6.1.4.1.12356.101.4.1.15
+        type: gauge
+        help: Number of active IPv6 sessions - FORTINET-FORTIGATE-MIB::fgSysSes6Count
+      - name: fgSysSes6Rate1
+        oid: 1.3.6.1.4.1.12356.101.4.1.16
+        type: gauge
+        help: IPv6 session setup rate averaged over the last minute - FORTINET-FORTIGATE-MIB::fgSysSes6Rate1
+
+      # ------------------------------------------------------- hardware sensors
+      # fgHwSensorEntValue is an OCTET STRING carrying the reading as text
+      # ("10384", "51.25", but also "OK" / "ABSENT(0)" for PSU bays). Neither
+      # Float nor gauge parses ASCII digits - Float silently yields 0 for every
+      # sensor - so the number is pulled out with regex_extracts.
+      - name: fgHwSensorEntValue
+        oid: 1.3.6.1.4.1.12356.101.4.3.2.1.3
+        type: DisplayString
+        help: Hardware sensor reading (temperature in C, fans in RPM, rails in V) - FORTINET-FORTIGATE-MIB::fgHwSensorEntValue
+        indexes:
+          - labelname: fgHwSensorEntIndex
+            type: gauge
+        lookups: &sensor_lookup
+          - labels: [fgHwSensorEntIndex]
+            labelname: fgHwSensorEntName
+            oid: 1.3.6.1.4.1.12356.101.4.3.2.1.2
+            type: DisplayString
+        regex_extracts:
+          # Numeric readings keep the metric name; text readings match nothing
+          # here and produce no sample.
+          '':
+            - regex: '^(-?[0-9]+(?:\.[0-9]+)?)$'
+              value: '$1'
+          # Presence/health for bays that report text instead of a number,
+          # exposed as fgHwSensorEntValue_present (1 fitted, 0 absent).
+          '_present':
+            - regex: '^(?i:ok|present|normal)$'
+              value: '1'
+            - regex: '^(?i:absent).*$'
+              value: '0'
+      - name: fgHwSensorEntAlarmStatus
+        oid: 1.3.6.1.4.1.12356.101.4.3.2.1.4
+        type: gauge
+        help: Hardware sensor alarm - 0 not alarming, 1 alarming - FORTINET-FORTIGATE-MIB::fgHwSensorEntAlarmStatus
+        indexes:
+          - labelname: fgHwSensorEntIndex
+            type: gauge
+        lookups: *sensor_lookup
+
+      # ------------------------------------------------------------- processors
+      - name: fgProcessorUsage
+        oid: 1.3.6.1.4.1.12356.101.4.4.2.1.2
+        type: gauge
+        help: Per-CPU usage percentage - FORTINET-FORTIGATE-MIB::fgProcessorUsage
+        indexes:
+          - labelname: fgProcessorEntIndex
+            type: gauge
+
+      # ------------------------------------------------------------------ vdoms
+      - name: fgVdNumber
+        oid: 1.3.6.1.4.1.12356.101.3.1.1
+        type: gauge
+        help: Number of virtual domains - FORTINET-FORTIGATE-MIB::fgVdNumber
+      - name: fgVdEntOpMode
+        oid: 1.3.6.1.4.1.12356.101.3.2.1.1.3
+        type: gauge
+        help: VDOM operation mode - 1 nat, 2 transparent - FORTINET-FORTIGATE-MIB::fgVdEntOpMode
+        indexes:
+          - labelname: fgVdEntIndex
+            type: gauge
+        lookups: &vdom_lookup
+          - labels: [fgVdEntIndex]
+            labelname: fgVdEntName
+            oid: 1.3.6.1.4.1.12356.101.3.2.1.1.2
+            type: DisplayString
+      - name: fgVdEntCpuUsage
+        oid: 1.3.6.1.4.1.12356.101.3.2.1.1.5
+        type: gauge
+        help: CPU usage percentage attributed to this VDOM - FORTINET-FORTIGATE-MIB::fgVdEntCpuUsage
+        indexes:
+          - labelname: fgVdEntIndex
+            type: gauge
+        lookups: *vdom_lookup
+      - name: fgVdEntMemUsage
+        oid: 1.3.6.1.4.1.12356.101.3.2.1.1.6
+        type: gauge
+        help: Memory usage percentage attributed to this VDOM - FORTINET-FORTIGATE-MIB::fgVdEntMemUsage
+        indexes:
+          - labelname: fgVdEntIndex
+            type: gauge
+        lookups: *vdom_lookup
+      - name: fgVdEntSesCount
+        oid: 1.3.6.1.4.1.12356.101.3.2.1.1.7
+        type: gauge
+        help: Active sessions in this VDOM - FORTINET-FORTIGATE-MIB::fgVdEntSesCount
+        indexes:
+          - labelname: fgVdEntIndex
+            type: gauge
+        lookups: *vdom_lookup
+      - name: fgVdEntSesRate
+        oid: 1.3.6.1.4.1.12356.101.3.2.1.1.8
+        type: gauge
+        help: Session setup rate in this VDOM - FORTINET-FORTIGATE-MIB::fgVdEntSesRate
+        indexes:
+          - labelname: fgVdEntIndex
+            type: gauge
+        lookups: *vdom_lookup
+
+      # -------------------------------------------------------------- IPsec VPN
+      - name: fgVpnTunnelUpCount
+        oid: 1.3.6.1.4.1.12356.101.12.1.1
+        type: gauge
+        help: Number of IPsec phase-2 tunnels currently up - FORTINET-FORTIGATE-MIB::fgVpnTunnelUpCount
+      - name: fgVpnTunEntStatus
+        oid: 1.3.6.1.4.1.12356.101.12.2.2.1.20
+        type: gauge
+        help: Tunnel state - 1 down, 2 up - FORTINET-FORTIGATE-MIB::fgVpnTunEntStatus
+        indexes:
+          - labelname: fgVpnTunEntIndex
+            type: gauge
+        lookups: &vpn_lookup
+          - labels: [fgVpnTunEntIndex]
+            labelname: fgVpnTunEntPhase1Name
+            oid: 1.3.6.1.4.1.12356.101.12.2.2.1.2
+            type: DisplayString
+          - labels: [fgVpnTunEntIndex]
+            labelname: fgVpnTunEntPhase2Name
+            oid: 1.3.6.1.4.1.12356.101.12.2.2.1.3
+            type: DisplayString
+      - name: fgVpnTunEntInOctets
+        oid: 1.3.6.1.4.1.12356.101.12.2.2.1.18
+        type: counter
+        help: Bytes received on this tunnel - FORTINET-FORTIGATE-MIB::fgVpnTunEntInOctets
+        indexes:
+          - labelname: fgVpnTunEntIndex
+            type: gauge
+        lookups: *vpn_lookup
+      - name: fgVpnTunEntOutOctets
+        oid: 1.3.6.1.4.1.12356.101.12.2.2.1.19
+        type: counter
+        help: Bytes sent on this tunnel - FORTINET-FORTIGATE-MIB::fgVpnTunEntOutOctets
+        indexes:
+          - labelname: fgVpnTunEntIndex
+            type: gauge
+        lookups: *vpn_lookup
+
+      # --------------------------------------------------------------------- HA
+      - name: fgHaSystemMode
+        oid: 1.3.6.1.4.1.12356.101.13.1.1
+        type: gauge
+        help: HA mode - 1 standalone, 2 active-active, 3 active-passive - FORTINET-FORTIGATE-MIB::fgHaSystemMode
+      - name: fgHaStatsCpuUsage
+        oid: 1.3.6.1.4.1.12356.101.13.2.1.1.3
+        type: gauge
+        help: CPU usage of this HA cluster member - FORTINET-FORTIGATE-MIB::fgHaStatsCpuUsage
+        indexes:
+          - labelname: fgHaStatsIndex
+            type: gauge
+        lookups: &ha_lookup
+          - labels: [fgHaStatsIndex]
+            labelname: fgHaStatsHostname
+            oid: 1.3.6.1.4.1.12356.101.13.2.1.1.11
+            type: DisplayString
+      - name: fgHaStatsMemUsage
+        oid: 1.3.6.1.4.1.12356.101.13.2.1.1.4
+        type: gauge
+        help: Memory usage of this HA cluster member - FORTINET-FORTIGATE-MIB::fgHaStatsMemUsage
+        indexes:
+          - labelname: fgHaStatsIndex
+            type: gauge
+        lookups: *ha_lookup
+      - name: fgHaStatsNetUsage
+        oid: 1.3.6.1.4.1.12356.101.13.2.1.1.5
+        type: gauge
+        help: Network bandwidth used by this HA cluster member in kbps - FORTINET-FORTIGATE-MIB::fgHaStatsNetUsage
+        indexes:
+          - labelname: fgHaStatsIndex
+            type: gauge
+        lookups: *ha_lookup
+      - name: fgHaStatsSesCount
+        oid: 1.3.6.1.4.1.12356.101.13.2.1.1.6
+        type: gauge
+        help: Sessions handled by this HA cluster member - FORTINET-FORTIGATE-MIB::fgHaStatsSesCount
+        indexes:
+          - labelname: fgHaStatsIndex
+            type: gauge
+        lookups: *ha_lookup
+      - name: fgHaStatsSyncStatus
+        oid: 1.3.6.1.4.1.12356.101.13.2.1.1.12
+        type: gauge
+        help: HA config sync state - 0 not synchronized, 1 synchronized - FORTINET-FORTIGATE-MIB::fgHaStatsSyncStatus
+        indexes:
+          - labelname: fgHaStatsIndex
+            type: gauge
+        lookups: *ha_lookup
+
+      # ------------------------------------------------------------- interfaces
+      - name: ifAdminStatus
+        oid: 1.3.6.1.2.1.2.2.1.7
+        type: gauge
+        help: Desired interface state - 1 up, 2 down, 3 testing - IF-MIB::ifAdminStatus
+        indexes: &if_index
+          - labelname: ifIndex
+            type: gauge
+        lookups: &if_lookup
+          - labels: [ifIndex]
+            labelname: ifName
+            oid: 1.3.6.1.2.1.31.1.1.1.1
+            type: DisplayString
+          - labels: [ifIndex]
+            labelname: ifAlias
+            oid: 1.3.6.1.2.1.31.1.1.1.18
+            type: DisplayString
+      - name: ifOperStatus
+        oid: 1.3.6.1.2.1.2.2.1.8
+        type: gauge
+        help: Current interface state - 1 up, 2 down, 3 testing, 4 unknown, 5 dormant, 6 notPresent, 7 lowerLayerDown - IF-MIB::ifOperStatus
+        indexes: *if_index
+        lookups: *if_lookup
+      - name: ifType
+        oid: 1.3.6.1.2.1.2.2.1.3
+        type: gauge
+        help: Interface type - IF-MIB::ifType
+        indexes: *if_index
+        lookups: *if_lookup
+      - name: ifMtu
+        oid: 1.3.6.1.2.1.2.2.1.4
+        type: gauge
+        help: Interface MTU in octets - IF-MIB::ifMtu
+        indexes: *if_index
+        lookups: *if_lookup
+      - name: ifHighSpeed
+        oid: 1.3.6.1.2.1.31.1.1.1.15
+        type: gauge
+        help: Negotiated interface speed in Mbps - IF-MIB::ifHighSpeed
+        indexes: *if_index
+        lookups: *if_lookup
+      - name: ifHCInOctets
+        oid: 1.3.6.1.2.1.31.1.1.1.6
+        type: counter
+        help: Octets received - IF-MIB::ifHCInOctets
+        indexes: *if_index
+        lookups: *if_lookup
+      - name: ifHCOutOctets
+        oid: 1.3.6.1.2.1.31.1.1.1.10
+        type: counter
+        help: Octets transmitted - IF-MIB::ifHCOutOctets
+        indexes: *if_index
+        lookups: *if_lookup
+      - name: ifHCInUcastPkts
+        oid: 1.3.6.1.2.1.31.1.1.1.7
+        type: counter
+        help: Unicast packets received - IF-MIB::ifHCInUcastPkts
+        indexes: *if_index
+        lookups: *if_lookup
+      - name: ifHCOutUcastPkts
+        oid: 1.3.6.1.2.1.31.1.1.1.11
+        type: counter
+        help: Unicast packets transmitted - IF-MIB::ifHCOutUcastPkts
+        indexes: *if_index
+        lookups: *if_lookup
+      - name: ifInDiscards
+        oid: 1.3.6.1.2.1.2.2.1.13
+        type: counter
+        help: Inbound packets discarded despite no error - IF-MIB::ifInDiscards
+        indexes: *if_index
+        lookups: *if_lookup
+      - name: ifInErrors
+        oid: 1.3.6.1.2.1.2.2.1.14
+        type: counter
+        help: Inbound packets containing errors - IF-MIB::ifInErrors
+        indexes: *if_index
+        lookups: *if_lookup
+      - name: ifOutDiscards
+        oid: 1.3.6.1.2.1.2.2.1.19
+        type: counter
+        help: Outbound packets discarded despite no error - IF-MIB::ifOutDiscards
+        indexes: *if_index
+        lookups: *if_lookup
+      - name: ifOutErrors
+        oid: 1.3.6.1.2.1.2.2.1.20
+        type: counter
+        help: Outbound packets that could not be transmitted because of errors - IF-MIB::ifOutErrors
+        indexes: *if_index
+        lookups: *if_lookup

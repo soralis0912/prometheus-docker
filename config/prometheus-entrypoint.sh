@@ -74,6 +74,35 @@ EOF
   CODER_JSON_COMMA=',\n'
 }
 
+add_fortigate_target() {
+  target="$1"
+  label="$2"
+
+  if [ -z "${target}" ]; then
+    return
+  fi
+
+  resolved_target="$(resolve_target "${target}")"
+
+  if [ -z "${resolved_target}" ]; then
+    return
+  fi
+
+  if [ -n "${FORTIGATE_JSON_COMMA:-}" ]; then
+    printf '%b' "${FORTIGATE_JSON_COMMA}"
+  fi
+
+  # The address is handed to snmp_exporter as ?target=, not scraped directly.
+  cat <<EOF
+  {
+    "targets": ["${resolved_target}"],
+    "labels": {"device": "${label}"}
+  }
+EOF
+
+  FORTIGATE_JSON_COMMA=',\n'
+}
+
 # Build file-based service discovery targets based on provided IPs.
 SD_DIR=/tmp/prometheus-file-sd
 SD_FILE="${SD_DIR}/netdata.json"
@@ -112,5 +141,24 @@ CODER_SD_FILE="${SD_DIR}/coder.json"
   done
   printf ']\n'
 } > "${CODER_SD_FILE}"
+
+# Build file-based service discovery targets for FortiGate SNMP polling.
+FORTIGATE_SD_FILE="${SD_DIR}/fortigate.json"
+{
+  printf '[\n'
+  FORTIGATE_JSON_COMMA=''
+  for entry in ${FORTIGATE_SNMP_TARGETS:-}; do
+    # Allow "host|label" so multiple FortiGates can be distinguished.
+    label="${entry#*|}"
+    if [ "${label}" = "${entry}" ]; then
+      label="${entry}"
+    else
+      entry="${entry%%|*}"
+    fi
+
+    add_fortigate_target "${entry}" "${label}"
+  done
+  printf ']\n'
+} > "${FORTIGATE_SD_FILE}"
 
 exec /bin/prometheus "$@"

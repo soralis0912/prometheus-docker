@@ -39,6 +39,16 @@ services:
       - ./data/grafana:/var/lib/grafana:rw
       - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./config/grafana/custom.ini:/etc/grafana/grafana.ini:ro
+  snmp-exporter:
+    image: prom/snmp-exporter:latest
+    container_name: snmp-exporter
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./config/snmp/snmp.yml:/snmp-config/snmp.yml:ro
+      - ./config/snmp-entrypoint.sh:/snmp-config/entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/snmp-config/entrypoint.sh"]
   tailscale-prometheus:
     image: tailscale/tailscale:stable
     hostname: prometheus

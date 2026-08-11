@@ -1,0 +1,133 @@
+groups:
+  - name: fortigate-system
+    rules:
+      - record: fortigate:cpu_usage_percent
+        expr: max by (device, instance) (fgSysCpuUsage{job="fortigate"})
+      - record: fortigate:cpu_core_usage_percent
+        expr: max by (device, instance, fgProcessorEntIndex) (fgProcessorUsage{job="fortigate"})
+      - record: fortigate:memory_used_percent
+        expr: max by (device, instance) (fgSysMemUsage{job="fortigate"})
+      - record: fortigate:memory_capacity_gib
+        expr: max by (device, instance) (fgSysMemCapacity{job="fortigate"}) / 1024 / 1024
+      - record: fortigate:memory_used_gib
+        expr: |
+          (max by (device, instance) (fgSysMemCapacity{job="fortigate"}) / 1024 / 1024)
+            *
+          (max by (device, instance) (fgSysMemUsage{job="fortigate"}) / 100)
+      - record: fortigate:disk_capacity_gib
+        expr: max by (device, instance) (fgSysDiskCapacity{job="fortigate"}) / 1024
+      - record: fortigate:disk_used_gib
+        expr: max by (device, instance) (fgSysDiskUsage{job="fortigate"}) / 1024
+      - record: fortigate:disk_used_percent
+        expr: |
+          100 * max by (device, instance) (fgSysDiskUsage{job="fortigate"})
+            /
+          clamp_min(max by (device, instance) (fgSysDiskCapacity{job="fortigate"}), 1)
+      - record: fortigate:uptime_seconds
+        expr: max by (device, instance) (sysUpTime{job="fortigate"}) / 100
+      # 1 when SNMP polling succeeded on the last scrape, 0 when it failed.
+      - record: fortigate:up
+        expr: max by (device, instance) (up{job="fortigate"})
+
+  - name: fortigate-sessions
+    rules:
+      - record: fortigate:sessions
+        expr: max by (device, instance) (fgSysSesCount{job="fortigate"})
+      - record: fortigate:sessions_ipv6
+        expr: max by (device, instance) (fgSysSes6Count{job="fortigate"})
+      - record: fortigate:session_setup_rate
+        expr: max by (device, instance) (fgSysSesRate1{job="fortigate"})
+      - record: fortigate:vdom_sessions
+        expr: max by (device, instance, fgVdEntName) (fgVdEntSesCount{job="fortigate"})
+      - record: fortigate:vdom_cpu_usage_percent
+        expr: max by (device, instance, fgVdEntName) (fgVdEntCpuUsage{job="fortigate"})
+      - record: fortigate:vdom_memory_used_percent
+        expr: max by (device, instance, fgVdEntName) (fgVdEntMemUsage{job="fortigate"})
+
+  - name: fortigate-interfaces
+    rules:
+      # Bits per second in/out per interface, keyed by the FortiOS interface name.
+      - record: fortigate:interface_receive_bps
+        expr: sum by (device, instance, ifName, ifAlias) (rate(ifHCInOctets{job="fortigate"}[5m])) * 8
+      - record: fortigate:interface_transmit_bps
+        expr: sum by (device, instance, ifName, ifAlias) (rate(ifHCOutOctets{job="fortigate"}[5m])) * 8
+      - record: fortigate:interface_receive_pps
+        expr: sum by (device, instance, ifName, ifAlias) (rate(ifHCInUcastPkts{job="fortigate"}[5m]))
+      - record: fortigate:interface_transmit_pps
+        expr: sum by (device, instance, ifName, ifAlias) (rate(ifHCOutUcastPkts{job="fortigate"}[5m]))
+      - record: fortigate:interface_errors_persec
+        expr: |
+          sum by (device, instance, ifName, ifAlias) (rate(ifInErrors{job="fortigate"}[5m]))
+            +
+          sum by (device, instance, ifName, ifAlias) (rate(ifOutErrors{job="fortigate"}[5m]))
+      - record: fortigate:interface_discards_persec
+        expr: |
+          sum by (device, instance, ifName, ifAlias) (rate(ifInDiscards{job="fortigate"}[5m]))
+            +
+          sum by (device, instance, ifName, ifAlias) (rate(ifOutDiscards{job="fortigate"}[5m]))
+      # 1 when the link is up, 0 otherwise (IF-MIB ifOperStatus 1 == up).
+      - record: fortigate:interface_up
+        expr: max by (device, instance, ifName, ifAlias) (ifOperStatus{job="fortigate"} == bool 1)
+      - record: fortigate:interface_speed_mbps
+        expr: max by (device, instance, ifName, ifAlias) (ifHighSpeed{job="fortigate"})
+      # Link utilisation against the negotiated speed, in percent.
+      - record: fortigate:interface_receive_utilization_percent
+        expr: |
+          100 * fortigate:interface_receive_bps
+            /
+          clamp_min(fortigate:interface_speed_mbps * 1000000, 1)
+      - record: fortigate:interface_transmit_utilization_percent
+        expr: |
+          100 * fortigate:interface_transmit_bps
+            /
+          clamp_min(fortigate:interface_speed_mbps * 1000000, 1)
+
+  - name: fortigate-hardware
+    rules:
+      # fgHwSensorEntName is free text, but FortiOS prefixes it with the sensor
+      # class: "TMP 1  CPUTIN", "FAN 2  SYS FAN", "VOL 10 VBAT", "PSU [1]".
+      # Matching that prefix (Prometheus anchors regexes, so these are whole-name
+      # matches) beats substring matching, which mixes classes up - "VOL 7
+      # P3V3_STBY_A" contains a voltage-looking token and "FAN 1  CPU FAN" would
+      # be caught by a bare .*cpu.* thermal pattern.
+      #
+      # Models that use other spellings are covered by the extra alternatives.
+      # "MV1680 n" is the switch-fabric chip temperature on some platforms.
+      # To check the real names on a new box:
+      #   count by (fgHwSensorEntName) (fgHwSensorEntValue{job="fortigate"})
+      - record: fortigate:sensor_temperature_celsius
+        expr: max by (device, instance, fgHwSensorEntName) (fgHwSensorEntValue{job="fortigate", fgHwSensorEntName=~"(?i)(tmp|temp|dts|lm75|mv[0-9]+)([ _].*)?"})
+      - record: fortigate:temperature_celsius_max
+        expr: max by (device, instance) (fgHwSensorEntValue{job="fortigate", fgHwSensorEntName=~"(?i)(tmp|temp|dts|lm75|mv[0-9]+)([ _].*)?"})
+      - record: fortigate:sensor_fan_rpm
+        expr: max by (device, instance, fgHwSensorEntName) (fgHwSensorEntValue{job="fortigate", fgHwSensorEntName=~"(?i)(fan|pwm)([ _].*)?"})
+      - record: fortigate:sensor_voltage_volts
+        expr: max by (device, instance, fgHwSensorEntName) (fgHwSensorEntValue{job="fortigate", fgHwSensorEntName=~"(?i)(vol|volt|voltage|vcc|vin|vout)([ _].*)?"})
+      # PSU bays report text ("OK" / "ABSENT(0)") rather than a number; the
+      # exporter turns that into 1/0 on fgHwSensorEntValue_present.
+      - record: fortigate:psu_present
+        expr: max by (device, instance, fgHwSensorEntName) (fgHwSensorEntValue_present{job="fortigate"})
+      # Any sensor the appliance itself considers out of range.
+      - record: fortigate:sensors_alarming
+        expr: sum by (device, instance) (fgHwSensorEntAlarmStatus{job="fortigate"} == bool 1)
+
+  - name: fortigate-vpn-ha
+    rules:
+      - record: fortigate:vpn_tunnels_up
+        expr: max by (device, instance) (fgVpnTunnelUpCount{job="fortigate"})
+      # 1 per phase-2 selector that is currently up (fgVpnTunEntStatus 2 == up).
+      - record: fortigate:vpn_tunnel_up
+        expr: max by (device, instance, fgVpnTunEntPhase1Name, fgVpnTunEntPhase2Name) (fgVpnTunEntStatus{job="fortigate"} == bool 2)
+      - record: fortigate:vpn_tunnel_receive_bps
+        expr: sum by (device, instance, fgVpnTunEntPhase1Name, fgVpnTunEntPhase2Name) (rate(fgVpnTunEntInOctets{job="fortigate"}[5m])) * 8
+      - record: fortigate:vpn_tunnel_transmit_bps
+        expr: sum by (device, instance, fgVpnTunEntPhase1Name, fgVpnTunEntPhase2Name) (rate(fgVpnTunEntOutOctets{job="fortigate"}[5m])) * 8
+      - record: fortigate:ha_member_cpu_usage_percent
+        expr: max by (device, instance, fgHaStatsHostname) (fgHaStatsCpuUsage{job="fortigate"})
+      - record: fortigate:ha_member_memory_used_percent
+        expr: max by (device, instance, fgHaStatsHostname) (fgHaStatsMemUsage{job="fortigate"})
+      - record: fortigate:ha_member_sessions
+        expr: max by (device, instance, fgHaStatsHostname) (fgHaStatsSesCount{job="fortigate"})
+      # 0 means this member's config is out of sync with the primary.
+      - record: fortigate:ha_member_in_sync
+        expr: max by (device, instance, fgHaStatsHostname) (fgHaStatsSyncStatus{job="fortigate"})

@@ -1,3 +1,5 @@
 data/*
 tailscale/*
 .env
+# Dashboards are built once and managed outside git.
+config/grafana/provisioning/dashboards/
