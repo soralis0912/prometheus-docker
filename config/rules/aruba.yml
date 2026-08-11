@@ -1,0 +1,58 @@
+groups:
+  - name: aruba-ap
+    rules:
+      - record: aruba:up
+        expr: max by (device, instance) (up{job="aruba"})
+      - record: aruba:cpu_usage_percent
+        expr: max by (device, instance, aiAPName) (aiAPCPUUtilization{job="aruba"})
+      - record: aruba:memory_used_percent
+        expr: |
+          100 * (
+            1 - aiAPMemoryFree{job="aruba"}
+                / clamp_min(aiAPTotalMemory{job="aruba"}, 1)
+          )
+      - record: aruba:memory_free_bytes
+        expr: max by (device, instance, aiAPName) (aiAPMemoryFree{job="aruba"})
+      - record: aruba:uptime_seconds
+        expr: max by (device, instance, aiAPName) (aiAPUptime{job="aruba"}) / 100
+      # 1 up, 2 down.
+      - record: aruba:ap_up
+        expr: max by (device, instance, aiAPName) (aiAPStatus{job="aruba"} == bool 1)
+
+  - name: aruba-radio
+    rules:
+      # The MIB reports the noise floor as a positive magnitude; dBm is
+      # negative, and a chart labelled dBm should show it that way.
+      - record: aruba:radio_noise_floor_dbm
+        expr: -max by (device, instance, aiAPName, aiRadioIndex, aiRadioChannel) (aiRadioNoiseFloor{job="aruba"})
+      - record: aruba:radio_transmit_power_dbm
+        expr: max by (device, instance, aiAPName, aiRadioIndex, aiRadioChannel) (aiRadioTransmitPower{job="aruba"})
+      # Utilization4 is the short window and 64 the long one. The short window
+      # is what a user feels; the long one is what capacity planning wants.
+      - record: aruba:radio_utilization_percent
+        expr: max by (device, instance, aiAPName, aiRadioIndex, aiRadioChannel) (aiRadioUtilization4{job="aruba"})
+      - record: aruba:radio_utilization_long_percent
+        expr: max by (device, instance, aiAPName, aiRadioIndex, aiRadioChannel) (aiRadioUtilization64{job="aruba"})
+      - record: aruba:radio_transmit_bps
+        expr: sum by (device, instance, aiAPName, aiRadioIndex, aiRadioChannel) (rate(aiRadioTxDataBytes{job="aruba"}[5m])) * 8
+      - record: aruba:radio_transmit_fps
+        expr: sum by (device, instance, aiAPName, aiRadioIndex, aiRadioChannel) (rate(aiRadioTxTotalFrames{job="aruba"}[5m]))
+
+  - name: aruba-clients
+    rules:
+      - record: aruba:ssid_clients
+        expr: max by (device, instance, aiSSIDName) (aiSSIDNumStations{job="aruba"})
+      - record: aruba:clients_total
+        expr: sum by (device, instance) (aiSSIDNumStations{job="aruba"})
+
+  - name: aruba-interfaces
+    rules:
+      # Instant exposes a virtual interface per radio/SSID alongside the eth
+      # uplinks, so per-SSID throughput comes from IF-MIB rather than the
+      # vendor tree.
+      - record: aruba:interface_receive_bps
+        expr: sum by (device, instance, ifName) (rate(ifHCInOctets{job="aruba"}[5m])) * 8
+      - record: aruba:interface_transmit_bps
+        expr: sum by (device, instance, ifName) (rate(ifHCOutOctets{job="aruba"}[5m])) * 8
+      - record: aruba:interface_up
+        expr: max by (device, instance, ifName) (ifOperStatus{job="aruba"} == bool 1)

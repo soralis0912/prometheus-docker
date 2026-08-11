@@ -26,6 +26,17 @@ auths:
     auth_protocol: MD5
     priv_protocol: DES
     version: 2
+  # v3 authPriv rather than a community: an Instant AP has no per-host SNMP
+  # restriction, so the credential is the only access control there is, and a
+  # v2c community would cross the LAN in the clear.
+  aruba_v3:
+    version: 3
+    security_level: authPriv
+    username: "${ARUBA_SNMP_USERNAME}"
+    password: "${ARUBA_SNMP_AUTH_PASSWORD}"
+    auth_protocol: SHA256
+    priv_password: "${ARUBA_SNMP_PRIV_PASSWORD}"
+    priv_protocol: AES
 
 modules:
   fortigate:
@@ -597,3 +608,191 @@ modules:
         help: Alert code - Printer-MIB::prtAlertCode
         indexes: *alert_index
         lookups: *alert_lookup
+
+  # ------------------------------------------------------- Aruba Instant APs
+  #
+  # AI-AP-MIB (1.3.6.1.4.1.14823.2.3.3.1). Host Resources is not implemented on
+  # AOS-8 Instant - hrProcessorLoad and hrStorage both return "No Such Object" -
+  # so CPU and memory have to come from the vendor tree.
+  #
+  # Column meanings were confirmed against the device rather than assumed:
+  # aiAPCPUUtilization read 2 while `show cpu` reported 98% idle, aiAPMemoryFree
+  # matched MemFree from `show memory`, and aiRadioNoiseFloor matched the noise
+  # figures in `show ap arm rf-summary`.
+  aruba_instant:
+    walk:
+      - 1.3.6.1.2.1.1.1                          # sysDescr
+      - 1.3.6.1.2.1.1.3                          # sysUpTime
+      - 1.3.6.1.2.1.1.5                          # sysName
+      - 1.3.6.1.4.1.14823.2.3.3.1.1.2            # aiVirtualControllerName
+      - 1.3.6.1.4.1.14823.2.3.3.1.1.4            # aiVirtualControllerVersion
+      - 1.3.6.1.4.1.14823.2.3.3.1.1.7            # aiSSIDTable
+      - 1.3.6.1.4.1.14823.2.3.3.1.2.1.1          # aiAccessPointTable
+      - 1.3.6.1.4.1.14823.2.3.3.1.2.2.1          # aiRadioTable
+      - 1.3.6.1.2.1.2.2.1.8                      # ifOperStatus
+      - 1.3.6.1.2.1.31.1.1.1.1                   # ifName
+      - 1.3.6.1.2.1.31.1.1.1.6                   # ifHCInOctets
+      - 1.3.6.1.2.1.31.1.1.1.10                  # ifHCOutOctets
+
+    metrics:
+      - name: sysDescr
+        oid: 1.3.6.1.2.1.1.1
+        type: DisplayString
+        help: Device description - SNMPv2-MIB::sysDescr
+      - name: sysName
+        oid: 1.3.6.1.2.1.1.5
+        type: DisplayString
+        help: Device name - SNMPv2-MIB::sysName
+      - name: sysUpTime
+        oid: 1.3.6.1.2.1.1.3
+        type: gauge
+        help: Time since the agent was last re-initialized, in hundredths of a second - SNMPv2-MIB::sysUpTime
+      - name: aiVirtualControllerName
+        oid: 1.3.6.1.4.1.14823.2.3.3.1.1.2
+        type: DisplayString
+        help: Virtual controller name - AI-AP-MIB::aiVirtualControllerName
+      - name: aiVirtualControllerVersion
+        oid: 1.3.6.1.4.1.14823.2.3.3.1.1.4
+        type: DisplayString
+        help: AOS version - AI-AP-MIB::aiVirtualControllerVersion
+
+      # ------------------------------------------------------------ access points
+      # Indexed by the AP's MAC, so identity travels as a readable label rather
+      # than six decimal octets.
+      - name: aiAPCPUUtilization
+        oid: 1.3.6.1.4.1.14823.2.3.3.1.2.1.1.7
+        type: gauge
+        help: CPU utilization percentage - AI-AP-MIB::aiAPCPUUtilization
+        indexes: &ap_index
+          - labelname: aiAPMacAddress
+            type: PhysAddress48
+        lookups: &ap_lookup
+          - labels: [aiAPMacAddress]
+            labelname: aiAPName
+            oid: 1.3.6.1.4.1.14823.2.3.3.1.2.1.1.2
+            type: DisplayString
+          - labels: [aiAPMacAddress]
+            labelname: aiAPModelName
+            oid: 1.3.6.1.4.1.14823.2.3.3.1.2.1.1.6
+            type: DisplayString
+      - name: aiAPMemoryFree
+        oid: 1.3.6.1.4.1.14823.2.3.3.1.2.1.1.8
+        type: gauge
+        help: Free memory in bytes - AI-AP-MIB::aiAPMemoryFree
+        indexes: *ap_index
+        lookups: *ap_lookup
+      - name: aiAPTotalMemory
+        oid: 1.3.6.1.4.1.14823.2.3.3.1.2.1.1.10
+        type: gauge
+        help: Total memory in bytes - AI-AP-MIB::aiAPTotalMemory
+        indexes: *ap_index
+        lookups: *ap_lookup
+      - name: aiAPUptime
+        oid: 1.3.6.1.4.1.14823.2.3.3.1.2.1.1.9
+        type: gauge
+        help: AP uptime in hundredths of a second - AI-AP-MIB::aiAPUptime
+        indexes: *ap_index
+        lookups: *ap_lookup
+      - name: aiAPStatus
+        oid: 1.3.6.1.4.1.14823.2.3.3.1.2.1.1.11
+        type: gauge
+        help: 1 up, 2 down - AI-AP-MIB::aiAPStatus
+        indexes: *ap_index
+        lookups: *ap_lookup
+
+      # ------------------------------------------------------------------ radios
+      # aiRadioChannel is a string on this platform ("52S", "1"), which is an
+      # identifier rather than a measurement - it belongs in a label.
+      - name: aiRadioTransmitPower
+        oid: 1.3.6.1.4.1.14823.2.3.3.1.2.2.1.5
+        type: gauge
+        help: Transmit power in dBm - AI-AP-MIB::aiRadioTransmitPower
+        indexes: &radio_index
+          - labelname: aiAPMacAddress
+            type: PhysAddress48
+          - labelname: aiRadioIndex
+            type: gauge
+        lookups: &radio_lookup
+          - labels: [aiAPMacAddress]
+            labelname: aiAPName
+            oid: 1.3.6.1.4.1.14823.2.3.3.1.2.1.1.2
+            type: DisplayString
+          - labels: [aiAPMacAddress, aiRadioIndex]
+            labelname: aiRadioChannel
+            oid: 1.3.6.1.4.1.14823.2.3.3.1.2.2.1.4
+            type: DisplayString
+      # Reported as a positive magnitude; the rules negate it back to dBm.
+      - name: aiRadioNoiseFloor
+        oid: 1.3.6.1.4.1.14823.2.3.3.1.2.2.1.6
+        type: gauge
+        help: Noise floor magnitude in dBm, reported positive - AI-AP-MIB::aiRadioNoiseFloor
+        indexes: *radio_index
+        lookups: *radio_lookup
+      - name: aiRadioUtilization4
+        oid: 1.3.6.1.4.1.14823.2.3.3.1.2.2.1.7
+        type: gauge
+        help: Channel utilization percentage over the short window - AI-AP-MIB::aiRadioUtilization4
+        indexes: *radio_index
+        lookups: *radio_lookup
+      - name: aiRadioUtilization64
+        oid: 1.3.6.1.4.1.14823.2.3.3.1.2.2.1.8
+        type: gauge
+        help: Channel utilization percentage over the long window - AI-AP-MIB::aiRadioUtilization64
+        indexes: *radio_index
+        lookups: *radio_lookup
+      - name: aiRadioTxTotalFrames
+        oid: 1.3.6.1.4.1.14823.2.3.3.1.2.2.1.9
+        type: counter
+        help: Frames transmitted - AI-AP-MIB::aiRadioTxTotalFrames
+        indexes: *radio_index
+        lookups: *radio_lookup
+      - name: aiRadioTxDataBytes
+        oid: 1.3.6.1.4.1.14823.2.3.3.1.2.2.1.12
+        type: counter
+        help: Data bytes transmitted - AI-AP-MIB::aiRadioTxDataBytes
+        indexes: *radio_index
+        lookups: *radio_lookup
+
+      # ------------------------------------------------------------------ SSIDs
+      # Client counts per SSID - the number people actually ask for, and far
+      # cheaper than a series per associated station.
+      - name: aiSSIDNumStations
+        oid: 1.3.6.1.4.1.14823.2.3.3.1.1.7.1.4
+        type: gauge
+        help: Clients associated to this SSID - AI-AP-MIB::aiSSIDNumStations
+        indexes:
+          - labelname: aiSSIDIndex
+            type: gauge
+        lookups:
+          - labels: [aiSSIDIndex]
+            labelname: aiSSIDName
+            oid: 1.3.6.1.4.1.14823.2.3.3.1.1.7.1.2
+            type: DisplayString
+
+      # ------------------------------------------------------------- interfaces
+      # eth uplinks plus one virtual interface per radio/SSID, which is where
+      # per-SSID throughput comes from.
+      - name: ifOperStatus
+        oid: 1.3.6.1.2.1.2.2.1.8
+        type: gauge
+        help: 1 up, 2 down - IF-MIB::ifOperStatus
+        indexes: &if_idx
+          - labelname: ifIndex
+            type: gauge
+        lookups: &if_lk
+          - labels: [ifIndex]
+            labelname: ifName
+            oid: 1.3.6.1.2.1.31.1.1.1.1
+            type: DisplayString
+      - name: ifHCInOctets
+        oid: 1.3.6.1.2.1.31.1.1.1.6
+        type: counter
+        help: Octets received - IF-MIB::ifHCInOctets
+        indexes: *if_idx
+        lookups: *if_lk
+      - name: ifHCOutOctets
+        oid: 1.3.6.1.2.1.31.1.1.1.10
+        type: counter
+        help: Octets transmitted - IF-MIB::ifHCOutOctets
+        indexes: *if_idx
+        lookups: *if_lk

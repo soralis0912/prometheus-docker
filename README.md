@@ -33,6 +33,8 @@ adding a device is an `.env` edit plus `docker compose up -d`.
 | `SYSLOG_ALLOY_TARGETS` | Alloy from the `syslog-docker` project. Port defaults to 12345. |
 | `PRINTER_SNMP_TARGETS` | Space-separated `host\|label`. Any printer answering Printer-MIB. |
 | `PRINTER_SNMP_COMMUNITY` | SNMPv2c community for printers, usually `public`. |
+| `ARUBA_SNMP_TARGETS` | Space-separated `host\|label`. Aruba Instant APs. |
+| `ARUBA_SNMP_USERNAME` / `_AUTH_PASSWORD` / `_PRIV_PASSWORD` | SNMPv3 authPriv credentials. |
 
 Only services defined in this compose project (`prometheus`, `loki`,
 `snmp-exporter`) are named directly in `prometheus.yml`. Everything external
@@ -187,6 +189,42 @@ Two traps in that MIB, both handled in `config/rules/printer.yml`:
 
 Scraped every 5 minutes: toner and page counts move over days, and printers are
 slow to answer.
+
+## Aruba Instant APs over SNMPv3
+
+AOS-8 Instant does not implement Host Resources - `hrProcessorLoad` and
+`hrStorage` both answer "No Such Object" - so CPU and memory come from
+AI-AP-MIB instead. Collected: CPU, memory, uptime and status per AP; channel,
+transmit power, noise floor and utilisation per radio; client counts per SSID;
+and IF-MIB counters, which on Instant include one virtual interface per
+radio/SSID and so give per-SSID throughput.
+
+Column meanings were confirmed against the device, not assumed:
+`aiAPCPUUtilization` read 2 while `show cpu` reported 98% idle,
+`aiAPMemoryFree` matched `MemFree` from `show memory`, and `aiRadioNoiseFloor`
+matched `show ap arm rf-summary`.
+
+Two device-specific details worth knowing:
+
+- `aiRadioChannel` is a **string** on this platform (`"52S"`, `"1"`), not the
+  integer the MIB declares. It is an identifier rather than a measurement, so
+  it is carried as a label.
+- The noise floor is reported as a positive magnitude; the rules negate it so a
+  chart labelled dBm shows dBm.
+
+SNMPv3 authPriv rather than a community: an Instant AP has no per-host SNMP
+restriction, so the credential is the only access control, and a v2c community
+would cross the LAN in the clear.
+
+```
+configure terminal
+snmp-server user <name> sha256 <auth-password> aes <priv-password>
+exit
+commit apply
+```
+
+`commit apply` is required - Instant uses a commit model and the change is
+otherwise staged but inactive.
 
 ### Values that read zero legitimately
 
