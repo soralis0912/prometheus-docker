@@ -26,10 +26,41 @@ adding a device is an `.env` edit plus `docker compose up -d`.
 
 | Variable | Purpose |
 |---|---|
-| `<NAME>_NETDATA_IP` | One per server. `<NAME>` becomes the `node` label. |
+| `<NAME>_NETDATA_IP` | One per server. `<NAME>` becomes the `node` label. Port defaults to 19999. |
 | `CODER_PROMETHEUS_TARGETS` | Space-separated `host:port\|label`. |
 | `FORTIGATE_SNMP_TARGETS` | Space-separated `host\|label`. `label` becomes `device`. |
 | `FORTIGATE_SNMP_COMMUNITY` | SNMPv2c community, expanded into `snmp.yml` at runtime. |
+| `SYSLOG_ALLOY_TARGETS` | Alloy from the `syslog-docker` project. Port defaults to 12345. |
+
+Only services defined in this compose project (`prometheus`, `loki`,
+`snmp-exporter`) are named directly in `prometheus.yml`. Everything external
+goes through `prometheus-entrypoint.sh`, so a clone that does not run a given
+stack leaves the variable empty and gets a job with no targets, rather than one
+that is permanently red.
+
+### Coder
+
+Coder serves metrics at the **root** of `CODER_PROMETHEUS_ADDRESS`, not at
+`/metrics`. The endpoint is off by default, and the default bind address is
+`127.0.0.1` - which, in a container, is that container's own loopback and
+unreachable from anywhere else. On the Coder host:
+
+```yaml
+services:
+  coder:
+    environment:
+      CODER_PROMETHEUS_ENABLE: "true"
+      CODER_PROMETHEUS_ADDRESS: "0.0.0.0:2112"
+    ports:
+      - "12112:2112"
+```
+
+Then set `CODER_PROMETHEUS_TARGETS=<coder-host>:12112`. Verify from this host
+before expecting the target to come up:
+
+```
+curl -s http://<coder-host>:12112/ | head -5
+```
 
 Servers are never named in the rules or dashboards - they aggregate
 `by (node)`, so a new `*_NETDATA_IP` entry shows up everywhere on its own.

@@ -17,12 +17,13 @@ scrape_configs:
     file_sd_configs:
       - files:
           - /tmp/prometheus-file-sd/netdata.json
+  # Coder serves its metrics at the root of the address given by
+  # CODER_PROMETHEUS_ADDRESS (default :2112), not at /metrics. That listener
+  # has to be bound to something reachable and published - by default Coder
+  # binds 127.0.0.1, which inside a container means the container itself.
   - job_name: 'coder'
     scrape_interval: 15s
-    scheme: http
-    metrics_path: /prometheus
-    tls_config:
-      insecure_skip_verify: true
+    metrics_path: /
     file_sd_configs:
       - files:
           - /tmp/prometheus-file-sd/coder.json
@@ -51,12 +52,15 @@ scrape_configs:
     static_configs:
       - targets: ['snmp-exporter:9116']
   # The syslog pipeline, so "did we stop receiving" is a metric with history
-  # rather than something you only see by opening a log panel. Alloy runs in
-  # the syslog-docker project and joins this network.
+  # rather than something you only see by opening a log panel. Alloy belongs to
+  # the syslog-docker project, so it comes from .env like every other external
+  # target - a deployment without that project just leaves it unset.
   - job_name: 'syslog-alloy'
     scrape_interval: 30s
-    static_configs:
-      - targets: ['syslog-alloy:12345']
+    file_sd_configs:
+      - files:
+          - /tmp/prometheus-file-sd/syslog-alloy.json
+  # Loki is defined in this compose project, so naming it here is safe.
   - job_name: 'loki'
     scrape_interval: 30s
     static_configs:

@@ -1,6 +1,15 @@
 #!/bin/sh
 set -eu
 
+# Renders file_sd documents from environment variables so that no address is
+# committed. Every scrape job that points at something outside this compose
+# project goes through here; only same-project services (prometheus, loki,
+# snmp-exporter) are named directly in prometheus.yml, because those names are
+# defined in this repo and always exist.
+
+SD_DIR=/tmp/prometheus-file-sd
+mkdir -p "${SD_DIR}"
+
 # Resolve host-gateway placeholder to the Docker gateway address.
 resolve_target() {
   value="$1"
@@ -18,147 +27,72 @@ resolve_target() {
   esac
 }
 
-add_target() {
-  ip="$1"
-  label="$2"
+# emit_sd <out-file> <label-name> <default-port> [entry ...]
+#
+# Each entry is "target|label"; the label defaults to the target. A target
+# without a port gets <default-port> appended, so a Netdata line can stay a
+# bare address. Pass an empty default port for jobs whose target already
+# carries one, or that are handed to an exporter as a parameter rather than
+# scraped directly (FortiGate goes to snmp_exporter as ?target=).
+#
+# An empty entry list writes "[]", which Prometheus reads as "this job has no
+# targets" rather than leaving a stale file behind.
+emit_sd() {
+  out="$1"
+  label_name="$2"
+  default_port="$3"
+  shift 3
 
-  if [ -z "${ip}" ]; then
-    return
-  fi
-
-  resolved_ip="$(resolve_target "${ip}")"
-
-  if [ -z "${resolved_ip}" ]; then
-    return
-  fi
-
-  if [ -n "${JSON_COMMA:-}" ]; then
-    printf '%b' "${JSON_COMMA}"
-  fi
-
-  cat <<EOF
   {
-    "targets": ["${resolved_ip}:19999"],
-    "labels": {"node": "${label}"}
+    printf '[\n'
+    comma=''
+    for entry in "$@"; do
+      target="${entry%%|*}"
+      label="${entry#*|}"
+      [ "${label}" = "${entry}" ] && label="${entry}"
+      [ -z "${target}" ] && continue
+
+      target="$(resolve_target "${target}")"
+      [ -z "${target}" ] && continue
+
+      case "${target}" in
+        *:*) ;;
+        *) [ -n "${default_port}" ] && target="${target}:${default_port}" ;;
+      esac
+
+      [ -n "${comma}" ] && printf '%b' "${comma}"
+      cat <<EOF
+  {
+    "targets": ["${target}"],
+    "labels": {"${label_name}": "${label}"}
   }
 EOF
-
-  JSON_COMMA=',\n'
+      comma=',\n'
+    done
+    printf ']\n'
+  } > "${out}"
 }
 
-add_coder_target() {
-  target="$1"
-  label="$2"
+# Netdata targets come from every *_NETDATA_IP variable; the prefix becomes the
+# node label, so adding a server is one line in .env and nothing else.
+netdata_entries=''
+for name in $(env | sed -n 's/^\([A-Za-z0-9_]*_NETDATA_IP\)=.*/\1/p' | sort); do
+  eval "value=\${${name}:-}"
+  [ -z "${value}" ] && continue
+  netdata_entries="${netdata_entries} ${value}|${name%_NETDATA_IP}"
+done
 
-  if [ -z "${target}" ]; then
-    return
-  fi
+emit_sd "${SD_DIR}/netdata.json"      node    19999 ${netdata_entries}
+emit_sd "${SD_DIR}/coder.json"        service ""    ${CODER_PROMETHEUS_TARGETS:-}
+emit_sd "${SD_DIR}/fortigate.json"    device  ""    ${FORTIGATE_SNMP_TARGETS:-}
+# Alloy lives in the syslog-docker project. Leaving this unset is the correct
+# state for a deployment that does not run it - the job then has no targets
+# instead of a permanently red one.
+emit_sd "${SD_DIR}/syslog-alloy.json" service 12345 ${SYSLOG_ALLOY_TARGETS:-}
 
-  resolved_target="$(resolve_target "${target}")"
-
-  if [ -z "${resolved_target}" ]; then
-    return
-  fi
-
-  if [ -n "${CODER_JSON_COMMA:-}" ]; then
-    printf '%b' "${CODER_JSON_COMMA}"
-  fi
-
-  cat <<EOF
-  {
-    "targets": ["${resolved_target}"],
-    "labels": {"service": "${label}"}
-  }
-EOF
-
-  CODER_JSON_COMMA=',\n'
-}
-
-add_fortigate_target() {
-  target="$1"
-  label="$2"
-
-  if [ -z "${target}" ]; then
-    return
-  fi
-
-  resolved_target="$(resolve_target "${target}")"
-
-  if [ -z "${resolved_target}" ]; then
-    return
-  fi
-
-  if [ -n "${FORTIGATE_JSON_COMMA:-}" ]; then
-    printf '%b' "${FORTIGATE_JSON_COMMA}"
-  fi
-
-  # The address is handed to snmp_exporter as ?target=, not scraped directly.
-  cat <<EOF
-  {
-    "targets": ["${resolved_target}"],
-    "labels": {"device": "${label}"}
-  }
-EOF
-
-  FORTIGATE_JSON_COMMA=',\n'
-}
-
-# Build file-based service discovery targets based on provided IPs.
-SD_DIR=/tmp/prometheus-file-sd
-SD_FILE="${SD_DIR}/netdata.json"
-mkdir -p "${SD_DIR}"
-
-{
-  printf '[\n'
-  JSON_COMMA=''
-  # Auto-add every *_NETDATA_IP environment variable as a Netdata target.
-  env | sort | while IFS='=' read -r name value; do
-    case "${name}" in
-      *_NETDATA_IP)
-        label="${name%_NETDATA_IP}"
-        add_target "${value}" "${label}"
-        ;;
-    esac
-  done
-  printf ']\n'
-} > "${SD_FILE}"
-
-# Build file-based service discovery targets for Coder metrics.
-CODER_SD_FILE="${SD_DIR}/coder.json"
-{
-  printf '[\n'
-  CODER_JSON_COMMA=''
-  for entry in ${CODER_PROMETHEUS_TARGETS:-}; do
-    # Allow "host:port|label" so multiple Coder instances can be distinguished.
-    label="${entry#*|}"
-    if [ "${label}" = "${entry}" ]; then
-      label="${entry}"
-    else
-      entry="${entry%%|*}"
-    fi
-
-    add_coder_target "${entry}" "${label}"
-  done
-  printf ']\n'
-} > "${CODER_SD_FILE}"
-
-# Build file-based service discovery targets for FortiGate SNMP polling.
-FORTIGATE_SD_FILE="${SD_DIR}/fortigate.json"
-{
-  printf '[\n'
-  FORTIGATE_JSON_COMMA=''
-  for entry in ${FORTIGATE_SNMP_TARGETS:-}; do
-    # Allow "host|label" so multiple FortiGates can be distinguished.
-    label="${entry#*|}"
-    if [ "${label}" = "${entry}" ]; then
-      label="${entry}"
-    else
-      entry="${entry%%|*}"
-    fi
-
-    add_fortigate_target "${entry}" "${label}"
-  done
-  printf ']\n'
-} > "${FORTIGATE_SD_FILE}"
+for f in netdata coder fortigate syslog-alloy; do
+  printf 'prometheus-entrypoint: %s.json -> %s target(s)\n' \
+    "${f}" "$(grep -c '"targets"' "${SD_DIR}/${f}.json" || true)" >&2
+done
 
 exec /bin/prometheus "$@"
