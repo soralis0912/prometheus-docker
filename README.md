@@ -31,6 +31,8 @@ adding a device is an `.env` edit plus `docker compose up -d`.
 | `FORTIGATE_SNMP_TARGETS` | Space-separated `host\|label`. `label` becomes `device`. |
 | `FORTIGATE_SNMP_COMMUNITY` | SNMPv2c community, expanded into `snmp.yml` at runtime. |
 | `SYSLOG_ALLOY_TARGETS` | Alloy from the `syslog-docker` project. Port defaults to 12345. |
+| `PRINTER_SNMP_TARGETS` | Space-separated `host\|label`. Any printer answering Printer-MIB. |
+| `PRINTER_SNMP_COMMUNITY` | SNMPv2c community for printers, usually `public`. |
 
 Only services defined in this compose project (`prometheus`, `loki`,
 `snmp-exporter`) are named directly in `prometheus.yml`. Everything external
@@ -166,6 +168,25 @@ real names and widen the pattern:
 ```
 count by (fgHwSensorEntName) (fgHwSensorEntValue{job="fortigate"})
 ```
+
+## Printers over SNMP
+
+Uses the standard Printer-MIB (RFC 3805) plus Host Resources, so it is not tied
+to a vendor. Collected: toner and drum levels, waste container fill, page
+counters, paper trays, printer status, and the device's own alert text.
+
+Two traps in that MIB, both handled in `config/rules/printer.yml`:
+
+- Level columns carry sentinels rather than only counts - `-1` other, `-2`
+  unknown, `-3` "present but not measured". A tray with no level sensor reads
+  `-3`, which is not the same as empty; the rules filter to `>= 0` and expose
+  media presence separately.
+- `prtMarkerSuppliesClass` separates a cartridge that *empties* (3) from a
+  waste receptacle that *fills* (4). The same level/max ratio means opposite
+  things, so the rules branch on the class and normalise both to "life left".
+
+Scraped every 5 minutes: toner and page counts move over days, and printers are
+slow to answer.
 
 ### Values that read zero legitimately
 

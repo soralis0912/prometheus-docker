@@ -46,6 +46,25 @@ scrape_configs:
         target_label: instance
       - target_label: __address__
         replacement: snmp-exporter:9116
+  # Printers, via the vendor-neutral Printer-MIB. Slow interval on purpose:
+  # toner and page counts move over days, and printers answer SNMP slowly.
+  - job_name: 'printer'
+    scrape_interval: 5m
+    scrape_timeout: 60s
+    metrics_path: /snmp
+    params:
+      auth: [printer_v2]
+      module: [printer]
+    file_sd_configs:
+      - files:
+          - /tmp/prometheus-file-sd/printer.json
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: snmp-exporter:9116
   # The exporter's own health (SNMP timeouts, scrape durations, walk failures).
   - job_name: 'snmp-exporter'
     scrape_interval: 30s

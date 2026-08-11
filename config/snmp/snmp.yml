@@ -20,6 +20,12 @@ auths:
     auth_protocol: MD5
     priv_protocol: DES
     version: 2
+  printer_v2:
+    community: "${PRINTER_SNMP_COMMUNITY}"
+    security_level: noAuthNoPriv
+    auth_protocol: MD5
+    priv_protocol: DES
+    version: 2
 
 modules:
   fortigate:
@@ -407,3 +413,187 @@ modules:
         help: Outbound packets that could not be transmitted because of errors - IF-MIB::ifOutErrors
         indexes: *if_index
         lookups: *if_lookup
+
+  # ---------------------------------------------------------------- printers
+  #
+  # Standard Printer-MIB (RFC 3805) plus Host Resources, so this is not tied to
+  # a vendor - any printer that answers SNMP should populate it.
+  #
+  # Two things in this MIB bite if taken at face value:
+  #
+  #   - Level columns carry sentinels, not just counts: -1 other, -2 unknown,
+  #     -3 "present but level unknown". Treating those as numbers gives you a
+  #     tray at -300%. The recording rules filter on >= 0.
+  #   - prtMarkerSuppliesClass distinguishes a cartridge that empties (3,
+  #     supplyThatIsConsumed) from a waste bottle that fills (4,
+  #     receptacleThatIsFilled). The same level/max ratio means opposite things
+  #     for the two, so the class is exported and the rules branch on it.
+  printer:
+    walk:
+      - 1.3.6.1.2.1.1.1                     # sysDescr
+      - 1.3.6.1.2.1.1.3                     # sysUpTime
+      - 1.3.6.1.2.1.1.5                     # sysName
+      - 1.3.6.1.2.1.25.3.2.1.5              # hrDeviceStatus
+      - 1.3.6.1.2.1.25.3.5.1.1              # hrPrinterStatus
+      - 1.3.6.1.2.1.25.3.5.1.2              # hrPrinterDetectedErrorState
+      - 1.3.6.1.2.1.43.8.2.1                # prtInputTable (trays)
+      - 1.3.6.1.2.1.43.10.2.1               # prtMarkerTable (page counters)
+      - 1.3.6.1.2.1.43.11.1.1               # prtMarkerSuppliesTable
+      - 1.3.6.1.2.1.43.18.1.1               # prtAlertTable
+
+    metrics:
+      # ---------------------------------------------------------------- system
+      - name: sysDescr
+        oid: 1.3.6.1.2.1.1.1
+        type: DisplayString
+        help: Device description - SNMPv2-MIB::sysDescr
+      - name: sysName
+        oid: 1.3.6.1.2.1.1.5
+        type: DisplayString
+        help: Device name - SNMPv2-MIB::sysName
+      - name: sysUpTime
+        oid: 1.3.6.1.2.1.1.3
+        type: gauge
+        help: Time since the agent was last re-initialized, in hundredths of a second - SNMPv2-MIB::sysUpTime
+
+      # ------------------------------------------------------- device / status
+      - name: hrDeviceStatus
+        oid: 1.3.6.1.2.1.25.3.2.1.5
+        type: gauge
+        help: 1 unknown, 2 running, 3 warning, 4 testing, 5 down - HOST-RESOURCES-MIB::hrDeviceStatus
+        indexes:
+          - labelname: hrDeviceIndex
+            type: gauge
+      - name: hrPrinterStatus
+        oid: 1.3.6.1.2.1.25.3.5.1.1
+        type: gauge
+        help: 1 other, 2 unknown, 3 idle, 4 printing, 5 warmup - HOST-RESOURCES-MIB::hrPrinterStatus
+        indexes:
+          - labelname: hrDeviceIndex
+            type: gauge
+      # A BITS column - one series per set bit, which is what "what exactly is
+      # wrong" looks like when the printer is not idle.
+      - name: hrPrinterDetectedErrorState
+        oid: 1.3.6.1.2.1.25.3.5.1.2
+        type: Bits
+        help: Bit set of detected error conditions - HOST-RESOURCES-MIB::hrPrinterDetectedErrorState
+        indexes:
+          - labelname: hrDeviceIndex
+            type: gauge
+
+      # ------------------------------------------------------------ paper trays
+      - name: prtInputCurrentLevel
+        oid: 1.3.6.1.2.1.43.8.2.1.10
+        type: gauge
+        help: Sheets remaining, or a negative sentinel (-1 other, -2 unknown, -3 present but unmeasured) - Printer-MIB::prtInputCurrentLevel
+        indexes: &input_index
+          - labelname: hrDeviceIndex
+            type: gauge
+          - labelname: prtInputIndex
+            type: gauge
+        lookups: &input_lookup
+          - labels: [hrDeviceIndex, prtInputIndex]
+            labelname: prtInputName
+            oid: 1.3.6.1.2.1.43.8.2.1.13
+            type: DisplayString
+          - labels: [hrDeviceIndex, prtInputIndex]
+            labelname: prtInputDescription
+            oid: 1.3.6.1.2.1.43.8.2.1.18
+            type: DisplayString
+      - name: prtInputMaxCapacity
+        oid: 1.3.6.1.2.1.43.8.2.1.9
+        type: gauge
+        help: Tray capacity in sheets - Printer-MIB::prtInputMaxCapacity
+        indexes: *input_index
+        lookups: *input_lookup
+      - name: prtInputStatus
+        oid: 1.3.6.1.2.1.43.8.2.1.11
+        type: gauge
+        help: Tray availability and non-critical/critical alert bits - Printer-MIB::prtInputStatus
+        indexes: *input_index
+        lookups: *input_lookup
+
+      # -------------------------------------------------------- page counters
+      - name: prtMarkerLifeCount
+        oid: 1.3.6.1.2.1.43.10.2.1.4
+        type: counter
+        help: Total pages printed over the life of the marker - Printer-MIB::prtMarkerLifeCount
+        indexes: &marker_index
+          - labelname: hrDeviceIndex
+            type: gauge
+          - labelname: prtMarkerIndex
+            type: gauge
+      - name: prtMarkerPowerOnCount
+        oid: 1.3.6.1.2.1.43.10.2.1.5
+        type: counter
+        help: Pages printed since power on - Printer-MIB::prtMarkerPowerOnCount
+        indexes: *marker_index
+      - name: prtMarkerCounterUnit
+        oid: 1.3.6.1.2.1.43.10.2.1.3
+        type: gauge
+        help: Unit of the page counters - 7 impressions, 8 sheets - Printer-MIB::prtMarkerCounterUnit
+        indexes: *marker_index
+
+      # ------------------------------------------------------------- supplies
+      - name: prtMarkerSuppliesLevel
+        oid: 1.3.6.1.2.1.43.11.1.1.9
+        type: gauge
+        help: Current level in prtMarkerSuppliesSupplyUnit, or a negative sentinel - Printer-MIB::prtMarkerSuppliesLevel
+        indexes: &supplies_index
+          - labelname: hrDeviceIndex
+            type: gauge
+          - labelname: prtMarkerSuppliesIndex
+            type: gauge
+        lookups: &supplies_lookup
+          - labels: [hrDeviceIndex, prtMarkerSuppliesIndex]
+            labelname: prtMarkerSuppliesDescription
+            oid: 1.3.6.1.2.1.43.11.1.1.6
+            type: DisplayString
+      - name: prtMarkerSuppliesMaxCapacity
+        oid: 1.3.6.1.2.1.43.11.1.1.8
+        type: gauge
+        help: Capacity in prtMarkerSuppliesSupplyUnit - Printer-MIB::prtMarkerSuppliesMaxCapacity
+        indexes: *supplies_index
+        lookups: *supplies_lookup
+      # 3 = a cartridge that empties, 4 = a receptacle that fills. The rules
+      # invert the percentage for 4.
+      - name: prtMarkerSuppliesClass
+        oid: 1.3.6.1.2.1.43.11.1.1.4
+        type: gauge
+        help: 1 other, 3 supplyThatIsConsumed, 4 receptacleThatIsFilled - Printer-MIB::prtMarkerSuppliesClass
+        indexes: *supplies_index
+        lookups: *supplies_lookup
+      - name: prtMarkerSuppliesType
+        oid: 1.3.6.1.2.1.43.11.1.1.5
+        type: gauge
+        help: 3 toner, 4 wasteToner, 9 opc (drum), 21 fuser, and so on - Printer-MIB::prtMarkerSuppliesType
+        indexes: *supplies_index
+        lookups: *supplies_lookup
+      - name: prtMarkerSuppliesSupplyUnit
+        oid: 1.3.6.1.2.1.43.11.1.1.7
+        type: gauge
+        help: Unit of level/capacity - 7 impressions, 19 percent - Printer-MIB::prtMarkerSuppliesSupplyUnit
+        indexes: *supplies_index
+        lookups: *supplies_lookup
+
+      # --------------------------------------------------------------- alerts
+      - name: prtAlertSeverityLevel
+        oid: 1.3.6.1.2.1.43.18.1.1.2
+        type: gauge
+        help: 1 other, 3 critical, 4 warning, 5 warningBinaryChangeEvent - Printer-MIB::prtAlertSeverityLevel
+        indexes: &alert_index
+          - labelname: hrDeviceIndex
+            type: gauge
+          - labelname: prtAlertIndex
+            type: gauge
+        lookups: &alert_lookup
+          - labels: [hrDeviceIndex, prtAlertIndex]
+            labelname: prtAlertDescription
+            oid: 1.3.6.1.2.1.43.18.1.1.8
+            type: DisplayString
+      - name: prtAlertCode
+        oid: 1.3.6.1.2.1.43.18.1.1.7
+        type: gauge
+        help: Alert code - Printer-MIB::prtAlertCode
+        indexes: *alert_index
+        lookups: *alert_lookup

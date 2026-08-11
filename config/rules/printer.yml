@@ -1,0 +1,93 @@
+groups:
+  - name: printer-status
+    rules:
+      - record: printer:up
+        expr: max by (device, instance) (up{job="printer"})
+      - record: printer:uptime_seconds
+        expr: max by (device, instance) (sysUpTime{job="printer"}) / 100
+      # 1 other, 2 unknown, 3 idle, 4 printing, 5 warmup
+      - record: printer:status
+        expr: max by (device, instance) (hrPrinterStatus{job="printer"})
+      # hrDeviceStatus 3 (warning) or 5 (down) on any sub-device.
+      - record: printer:devices_unhealthy
+        expr: sum by (device, instance) (hrDeviceStatus{job="printer"} > 2)
+
+  - name: printer-supplies
+    rules:
+      # Printer-MIB overloads the level column with sentinels (-1 other,
+      # -2 unknown, -3 present but unmeasured), so filter to real readings
+      # before doing arithmetic - otherwise a tray reports -300%.
+      #
+      # Class 3 is a cartridge that empties and class 4 a receptacle that
+      # fills, so the same level/max ratio means opposite things. Both are
+      # normalised here to "how much life is left".
+      - record: printer:supply_remaining_percent
+        expr: |
+          (
+            100 * (prtMarkerSuppliesLevel{job="printer"} >= 0)
+              / clamp_min(prtMarkerSuppliesMaxCapacity{job="printer"}, 1)
+            and on (device, instance, hrDeviceIndex, prtMarkerSuppliesIndex)
+            (prtMarkerSuppliesClass{job="printer"} == 3)
+          )
+          or
+          (
+            100 - 100 * (prtMarkerSuppliesLevel{job="printer"} >= 0)
+              / clamp_min(prtMarkerSuppliesMaxCapacity{job="printer"}, 1)
+            and on (device, instance, hrDeviceIndex, prtMarkerSuppliesIndex)
+            (prtMarkerSuppliesClass{job="printer"} == 4)
+          )
+      # The waste bottle expressed the way it is actually read: how full it is.
+      - record: printer:waste_container_full_percent
+        expr: |
+          100 * (prtMarkerSuppliesLevel{job="printer"} >= 0)
+            / clamp_min(prtMarkerSuppliesMaxCapacity{job="printer"}, 1)
+          and on (device, instance, hrDeviceIndex, prtMarkerSuppliesIndex)
+          (prtMarkerSuppliesClass{job="printer"} == 4)
+      - record: printer:supply_level
+        expr: max by (device, instance, prtMarkerSuppliesDescription) (prtMarkerSuppliesLevel{job="printer"} >= 0)
+      # Lowest consumable, so one series answers "does anything need ordering".
+      - record: printer:supply_remaining_percent_min
+        expr: min by (device, instance) (printer:supply_remaining_percent)
+
+  - name: printer-paper
+    rules:
+      - record: printer:tray_sheets
+        expr: max by (device, instance, prtInputName, prtInputDescription) (prtInputCurrentLevel{job="printer"} >= 0)
+      - record: printer:tray_capacity_sheets
+        expr: max by (device, instance, prtInputName, prtInputDescription) (prtInputMaxCapacity{job="printer"})
+      - record: printer:tray_percent
+        expr: |
+          100 * (prtInputCurrentLevel{job="printer"} >= 0)
+            / clamp_min(prtInputMaxCapacity{job="printer"}, 1)
+      # -3 means "media present, level not measured", which is not the same as
+      # empty. Without this, a tray that simply has no sensor looks out of paper.
+      - record: printer:tray_media_present
+        expr: |
+          max by (device, instance, prtInputName, prtInputDescription) (
+            (prtInputCurrentLevel{job="printer"} > 0)
+            or
+            (prtInputCurrentLevel{job="printer"} == -3)
+          ) > bool -4
+
+  - name: printer-usage
+    rules:
+      - record: printer:page_count
+        expr: max by (device, instance) (prtMarkerLifeCount{job="printer"})
+      - record: printer:pages_per_hour
+        expr: sum by (device, instance) (rate(prtMarkerLifeCount{job="printer"}[6h])) * 3600
+      - record: printer:pages_last_24h
+        expr: sum by (device, instance) (increase(prtMarkerLifeCount{job="printer"}[24h]))
+      - record: printer:pages_last_30d
+        expr: sum by (device, instance) (increase(prtMarkerLifeCount{job="printer"}[30d]))
+
+  - name: printer-alerts
+    rules:
+      # prtAlertTable carries human-readable text from the device itself, which
+      # beats decoding a bit field. Severity 3 is critical, 4 warning; 1 (other)
+      # is used for informational states such as power save.
+      - record: printer:alert
+        expr: max by (device, instance, prtAlertDescription) (prtAlertSeverityLevel{job="printer"})
+      - record: printer:alerts_critical
+        expr: sum by (device, instance) (prtAlertSeverityLevel{job="printer"} == bool 3)
+      - record: printer:alerts_warning
+        expr: sum by (device, instance) (prtAlertSeverityLevel{job="printer"} == bool 4)

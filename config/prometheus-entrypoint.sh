@@ -85,12 +85,13 @@ done
 emit_sd "${SD_DIR}/netdata.json"      node    19999 ${netdata_entries}
 emit_sd "${SD_DIR}/coder.json"        service ""    ${CODER_PROMETHEUS_TARGETS:-}
 emit_sd "${SD_DIR}/fortigate.json"    device  ""    ${FORTIGATE_SNMP_TARGETS:-}
+emit_sd "${SD_DIR}/printer.json"      device  ""    ${PRINTER_SNMP_TARGETS:-}
 # Alloy lives in the syslog-docker project. Leaving this unset is the correct
 # state for a deployment that does not run it - the job then has no targets
 # instead of a permanently red one.
 emit_sd "${SD_DIR}/syslog-alloy.json" service 12345 ${SYSLOG_ALLOY_TARGETS:-}
 
-for f in netdata coder fortigate syslog-alloy; do
+for f in netdata coder fortigate printer syslog-alloy; do
   printf 'prometheus-entrypoint: %s.json -> %s target(s)\n' \
     "${f}" "$(grep -c '"targets"' "${SD_DIR}/${f}.json" || true)" >&2
 done
