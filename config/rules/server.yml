@@ -25,3 +25,166 @@ groups:
         expr: sum by (node) (abs(netdata_system_net_kilobits_persec_average{job="netdata", dimension="sent"})) / 1000
       - record: node:btrfs_used_gib
         expr: sum by (node, filesystem_label) (netdata_btrfs_data_MiB_average{job="netdata", dimension="used"}) / 1024
+
+  - name: server-cpu-detail
+    rules:
+      # Breakdown of where CPU time goes (user / system / iowait / steal / ...).
+      - record: node:cpu_usage_by_mode_percent
+        expr: sum by (node, dimension) (netdata_system_cpu_percentage_average{job="netdata", dimension!="idle"})
+      - record: node:cpu_iowait_percent
+        expr: sum by (node) (netdata_system_cpu_percentage_average{job="netdata", dimension="iowait"})
+      - record: node:cpu_steal_percent
+        expr: sum by (node) (netdata_system_cpu_percentage_average{job="netdata", dimension="steal"})
+      # Thermal/power throttling - the average CPU% stays low while the box is capped.
+      - record: node:cpu_throttling_events_persec
+        expr: sum by (node) (netdata_cpu_core_throttling_events_persec_average{job="netdata"})
+      - record: node:cpu_pressure_percent
+        expr: sum by (node) (netdata_system_cpu_some_pressure_percentage_average{job="netdata", dimension="some 10"})
+      - record: node:load1
+        expr: sum by (node) (netdata_system_load_load_average{job="netdata", dimension="load1"})
+      - record: node:load5
+        expr: sum by (node) (netdata_system_load_load_average{job="netdata", dimension="load5"})
+      - record: node:load15
+        expr: sum by (node) (netdata_system_load_load_average{job="netdata", dimension="load15"})
+      - record: node:context_switches_persec
+        expr: sum by (node) (netdata_system_ctxt_context_switches_persec_average{job="netdata"})
+      - record: node:interrupts_persec
+        expr: sum by (node) (netdata_system_intr_interrupts_persec_average{job="netdata"})
+      - record: node:processes_running
+        expr: sum by (node) (netdata_system_processes_processes_average{job="netdata", dimension="running"})
+      - record: node:processes_blocked
+        expr: sum by (node) (netdata_system_processes_processes_average{job="netdata", dimension="blocked"})
+      - record: node:uptime_seconds
+        expr: sum by (node) (netdata_system_uptime_seconds_average{job="netdata"})
+
+  - name: server-memory-detail
+    rules:
+      - record: node:memory_available_mib
+        expr: sum by (node) (netdata_system_ram_MiB_average{job="netdata", dimension=~"free|cached|buffers"})
+      - record: node:swap_used_mib
+        expr: sum by (node) (netdata_mem_swap_MiB_average{job="netdata", dimension="used"})
+      - record: node:swap_used_percent
+        expr: |
+          100 * sum by (node) (netdata_mem_swap_MiB_average{job="netdata", dimension="used"})
+            /
+          clamp_min(sum by (node) (netdata_mem_swap_MiB_average{job="netdata", dimension=~"used|free"}), 1)
+      # Non-zero swap I/O is the real "we are short on RAM" signal, not swap usage.
+      - record: node:swap_io_kib_persec
+        expr: sum by (node, dimension) (abs(netdata_mem_swapio_KiB_persec_average{job="netdata"}))
+
+  - name: server-disk
+    rules:
+      - record: node:disk_space_used_gib
+        expr: sum by (node, mount_point, filesystem) (netdata_disk_space_GiB_average{job="netdata", dimension="used"})
+      - record: node:disk_space_avail_gib
+        expr: sum by (node, mount_point, filesystem) (netdata_disk_space_GiB_average{job="netdata", dimension="avail"})
+      - record: node:disk_space_used_percent
+        expr: |
+          100 * sum by (node, mount_point, filesystem) (netdata_disk_space_GiB_average{job="netdata", dimension="used"})
+            /
+          clamp_min(
+            sum by (node, mount_point, filesystem) (netdata_disk_space_GiB_average{job="netdata", dimension=~"used|avail|reserved for root"}),
+            0.001
+          )
+      - record: node:disk_read_mib_persec
+        expr: sum by (node, device) (netdata_disk_io_KiB_persec_average{job="netdata", dimension="reads"}) / 1024
+      - record: node:disk_write_mib_persec
+        expr: sum by (node, device) (abs(netdata_disk_io_KiB_persec_average{job="netdata", dimension="writes"})) / 1024
+      - record: node:disk_util_percent
+        expr: max by (node, device) (netdata_disk_util___of_time_working_average{job="netdata"})
+      - record: node:disk_await_ms
+        expr: max by (node, device, dimension) (netdata_disk_await_milliseconds_operation_average{job="netdata"})
+      - record: node:system_io_kib_persec
+        expr: sum by (node, dimension) (abs(netdata_system_io_KiB_persec_average{job="netdata"}))
+
+  - name: server-hardware
+    rules:
+      # IPMI (BMC) readings. Every netdata host that exposes a BMC lands here,
+      # so these rules stay per-node and never name a specific machine. Sensor
+      # naming is vendor-specific (Fujitsu "Ambient"/"Total Power", Dell
+      # "Inlet Temp"/"Pwr Consumption", Supermicro "System Temp", ...), so the
+      # roll-ups below match a set of known names rather than one vendor's.
+      # When a new server joins, check its sensor names with:
+      #   count by (node, sensor) (netdata_ipmi_sensor_temperature_c_Celsius_average)
+      # and extend the alternations if it uses yet another spelling.
+      #
+      # Note: a host may expose several sensors sharing one name (Dell reports
+      # two "Temp" sensors, one per socket); those collapse to their max here.
+      - record: node:ipmi_temperature_celsius
+        expr: max by (node, sensor, component) (netdata_ipmi_sensor_temperature_c_Celsius_average{job="netdata"})
+      - record: node:ipmi_temperature_celsius_max
+        expr: max by (node) (netdata_ipmi_sensor_temperature_c_Celsius_average{job="netdata"})
+      - record: node:ipmi_fan_rpm
+        expr: max by (node, sensor) (netdata_ipmi_sensor_fan_speed_RPM_average{job="netdata"})
+      - record: node:ipmi_voltage_volts
+        expr: max by (node, sensor) (netdata_ipmi_sensor_voltage_Volts_average{job="netdata"})
+      - record: node:ipmi_power_watts
+        expr: max by (node, sensor, component) (netdata_ipmi_sensor_power_Watts_average{job="netdata"})
+      # Chassis-level draw, one series per node. Matches whole sensor names
+      # (Prometheus anchors regexes) so per-component rails such as
+      # "CPU1 Power", "FAN Power" or "Total Power Out" are excluded.
+      - record: node:power_watts
+        expr: |
+          max by (node) (
+            netdata_ipmi_sensor_power_Watts_average{
+              job="netdata",
+              sensor=~"(?i)(pwr consumption|power consumption|system power|sys power|total power|system level)"
+            }
+          )
+      # Intake air temperature - the cross-vendor "how hot is the rack" number.
+      - record: node:inlet_temperature_celsius
+        expr: |
+          max by (node) (
+            netdata_ipmi_sensor_temperature_c_Celsius_average{
+              job="netdata",
+              sensor=~"(?i)(ambient|inlet|inlet temp|intake|front panel temp)"
+            }
+          )
+      # Drive temperatures from both smartctl (SATA/SAS) and the nvme collector.
+      - record: node:drive_temperature_celsius
+        expr: max by (node, device_name) (netdata_smartctl_device_temperature_Celsius_average{job="netdata"})
+      - record: node:nvme_temperature_celsius
+        expr: max by (node, device) (netdata_nvme_device_composite_temperature_celsius_average{job="netdata"})
+      - record: node:ipmi_sel_events
+        expr: max by (node) (netdata_ipmi_sel_events_average{job="netdata"})
+
+  - name: server-network-detail
+    rules:
+      - record: node:interface_receive_mbps
+        expr: sum by (node, device) (netdata_net_net_kilobits_persec_average{job="netdata", dimension="received"}) / 1000
+      - record: node:interface_transmit_mbps
+        expr: sum by (node, device) (abs(netdata_net_net_kilobits_persec_average{job="netdata", dimension="sent"})) / 1000
+      - record: node:interface_errors_persec
+        expr: sum by (node, device, dimension) (abs(netdata_net_errors_errors_persec_average{job="netdata"}))
+      - record: node:interface_drops_persec
+        expr: sum by (node, device, dimension) (abs(netdata_net_drops_drops_persec_average{job="netdata"}))
+      - record: node:interface_packets_persec
+        expr: sum by (node, device, dimension) (abs(netdata_net_packets_packets_persec_average{job="netdata"}))
+      - record: node:tcp_sockets_inuse
+        expr: sum by (node) (netdata_ipv4_sockstat_tcp_sockets_sockets_average{job="netdata", dimension="inuse"})
+      - record: node:tcp_sockets_timewait
+        expr: sum by (node) (netdata_ipv4_sockstat_tcp_sockets_sockets_average{job="netdata", dimension="timewait"})
+      - record: node:tcp_connection_aborts_persec
+        expr: sum by (node, dimension) (netdata_ip_tcpconnaborts_connections_persec_average{job="netdata"})
+
+  - name: server-workload
+    rules:
+      - record: node:docker_containers
+        expr: sum by (node, dimension) (netdata_docker_containers_state_containers_average{job="netdata"})
+      - record: node:docker_containers_running
+        expr: sum by (node) (netdata_docker_containers_state_containers_average{job="netdata", dimension="running"})
+      - record: node:docker_containers_unhealthy
+        expr: sum by (node) (netdata_docker_containers_health_status_containers_average{job="netdata", dimension="unhealthy"})
+      # Top talkers by app group - useful to see which service is eating the box.
+      - record: node:app_cpu_percent
+        expr: sum by (node, app_group) (netdata_app_cpu_utilization_percentage_average{job="netdata"})
+      - record: node:app_memory_mib
+        expr: sum by (node, app_group) (netdata_app_mem_usage_MiB_average{job="netdata"})
+
+  - name: monitoring-health
+    rules:
+      # One series per scrape target so a dashboard can show what is not reporting.
+      - record: target:up
+        expr: up
+      - record: target:scrape_duration_seconds
+        expr: scrape_duration_seconds
