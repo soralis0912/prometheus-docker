@@ -9,8 +9,10 @@ groups:
       - record: printer:status
         expr: max by (device, instance) (hrPrinterStatus{job="printer"})
       # hrDeviceStatus 3 (warning) or 5 (down) on any sub-device.
+      # > bool 2 rather than > 2: a filter yields no series when everything is
+      # healthy, and "no data" is not the same as "nothing wrong".
       - record: printer:devices_unhealthy
-        expr: sum by (device, instance) (hrDeviceStatus{job="printer"} > 2)
+        expr: sum by (device, instance) (hrDeviceStatus{job="printer"} > bool 2)
 
   - name: printer-supplies
     rules:
@@ -18,36 +20,40 @@ groups:
       # -2 unknown, -3 present but unmeasured), so filter to real readings
       # before doing arithmetic - otherwise a tray reports -300%.
       #
-      # Class 3 is a cartridge that empties and class 4 a receptacle that
-      # fills, so the same level/max ratio means opposite things. Both are
-      # normalised here to "how much life is left".
-      - record: printer:supply_remaining_percent
-        expr: |
-          (
-            100 * (prtMarkerSuppliesLevel{job="printer"} >= 0)
-              / clamp_min(prtMarkerSuppliesMaxCapacity{job="printer"}, 1)
-            and on (device, instance, hrDeviceIndex, prtMarkerSuppliesIndex)
-            (prtMarkerSuppliesClass{job="printer"} == 3)
-          )
-          or
-          (
-            100 - 100 * (prtMarkerSuppliesLevel{job="printer"} >= 0)
-              / clamp_min(prtMarkerSuppliesMaxCapacity{job="printer"}, 1)
-            and on (device, instance, hrDeviceIndex, prtMarkerSuppliesIndex)
-            (prtMarkerSuppliesClass{job="printer"} == 4)
-          )
-      # The waste bottle expressed the way it is actually read: how full it is.
-      - record: printer:waste_container_full_percent
+      # What the device reports, with no interpretation layered on top.
+      - record: printer:supply_percent
         expr: |
           100 * (prtMarkerSuppliesLevel{job="printer"} >= 0)
             / clamp_min(prtMarkerSuppliesMaxCapacity{job="printer"}, 1)
-          and on (device, instance, hrDeviceIndex, prtMarkerSuppliesIndex)
-          (prtMarkerSuppliesClass{job="printer"} == 4)
       - record: printer:supply_level
         expr: max by (device, instance, prtMarkerSuppliesDescription) (prtMarkerSuppliesLevel{job="printer"} >= 0)
-      # Lowest consumable, so one series answers "does anything need ordering".
-      - record: printer:supply_remaining_percent_min
-        expr: min by (device, instance) (printer:supply_remaining_percent)
+
+      # Only class 3 (supplyThatIsConsumed) is unambiguous: level/max really is
+      # how much is left.
+      #
+      # Class 4 (receptacleThatIsFilled) is meant to report how FULL it is, so
+      # by the MIB a waste bottle at level==max is full. Not every printer
+      # follows that - the unit verified here reports 6000/6000 for the waste
+      # bottle on a machine with a lifetime page count of 1, which is remaining
+      # capacity, not fill. Inverting class 4 on that device produced "0%
+      # remaining" and dragged the fleet minimum to zero, so receptacles are
+      # deliberately kept out of the alerting series and exposed raw below.
+      - record: printer:consumable_remaining_percent
+        expr: |
+          printer:supply_percent
+          and on (device, instance, hrDeviceIndex, prtMarkerSuppliesIndex)
+          (prtMarkerSuppliesClass{job="printer"} == 3)
+      # One series that answers "does anything need ordering".
+      - record: printer:consumable_remaining_percent_min
+        expr: min by (device, instance) (printer:consumable_remaining_percent)
+
+      # Receptacles, raw. Read it against the page count before believing it:
+      # whether high means full or empty is vendor-dependent.
+      - record: printer:receptacle_percent
+        expr: |
+          printer:supply_percent
+          and on (device, instance, hrDeviceIndex, prtMarkerSuppliesIndex)
+          (prtMarkerSuppliesClass{job="printer"} == 4)
 
   - name: printer-paper
     rules:
@@ -60,14 +66,18 @@ groups:
           100 * (prtInputCurrentLevel{job="printer"} >= 0)
             / clamp_min(prtInputMaxCapacity{job="printer"}, 1)
       # -3 means "media present, level not measured", which is not the same as
-      # empty. Without this, a tray that simply has no sensor looks out of paper.
+      # empty. Without this a tray with no sensor looks out of paper.
+      #
+      # Summed rather than or-ed: `a or b` on two bool vectors covering the
+      # same series always takes the left one, so an empty tray silently
+      # dropped out instead of reporting 0.
       - record: printer:tray_media_present
         expr: |
-          max by (device, instance, prtInputName, prtInputDescription) (
-            (prtInputCurrentLevel{job="printer"} > 0)
-            or
-            (prtInputCurrentLevel{job="printer"} == -3)
-          ) > bool -4
+          clamp_max(
+            (prtInputCurrentLevel{job="printer"} > bool 0)
+            + (prtInputCurrentLevel{job="printer"} == bool -3),
+            1
+          )
 
   - name: printer-usage
     rules:
