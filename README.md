@@ -10,8 +10,10 @@ config/
   prometheus-entrypoint.sh             renders file_sd JSON from .env at startup
   rules/server.yml                     node:*        recording rules (netdata)
   rules/fortigate.yml                  fortigate:*   recording rules (SNMP)
+  rules/syslog.yml                     syslog:*      recording rules (log pipeline)
   snmp/snmp.yml                        snmp_exporter module for FortiOS
-  grafana/provisioning/datasources/    Prometheus datasource
+  loki/loki.yml                        log storage, retention via compactor
+  grafana/provisioning/datasources/    Prometheus and Loki datasources
 ```
 
 Dashboards are built once and kept out of git (see `.gitignore`); this repo
@@ -143,6 +145,21 @@ rules stay empty until an IPsec tunnel exists.
 The same applies to IPMI on the servers: `config/rules/server.yml` matches a set
 of known chassis-power and inlet-temperature sensor names across vendors rather
 than a single machine's naming.
+
+## Logs
+
+Loki runs here and is published on `127.0.0.1:3100` only - never on the LAN.
+Grafana reaches it as `loki:3100` on this compose network.
+
+The receiving end lives in a separate project (`syslog-docker`) whose Alloy
+joins this network, so it pushes to `loki:3100` and Prometheus scrapes it back
+as `syslog-alloy:12345`. That scrape is what makes an ingest stall visible:
+`syslog:lines_read_total_1h == 0` is a series with history, where an empty log
+panel looks identical to a quiet device.
+
+`config/rules/syslog.yml` rolls those up - lines read, entries sent, entries
+**dropped** (the one loss mode an on-disk buffer cannot cover), and component
+liveness.
 
 ## Dashboards
 

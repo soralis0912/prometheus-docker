@@ -1,0 +1,53 @@
+groups:
+  - name: syslog-pipeline
+    rules:
+      # Reading the files (Alloy tail stage).
+      - record: syslog:lines_read_persec
+        expr: sum(rate(loki_source_file_read_lines_total{job="syslog-alloy"}[5m]))
+      - record: syslog:files_active
+        expr: sum(loki_source_file_files_active_total{job="syslog-alloy"})
+      # Shipping them (Alloy write stage).
+      - record: syslog:entries_sent_persec
+        expr: sum(rate(loki_write_sent_entries_total{job="syslog-alloy"}[5m]))
+      - record: syslog:bytes_sent_persec
+        expr: sum(rate(loki_write_sent_bytes_total{job="syslog-alloy"}[5m]))
+      # Anything above zero here is data that reached the disk and then died on
+      # the way to Loki - the one loss mode the file buffer does not cover.
+      - record: syslog:entries_dropped_persec
+        expr: sum(rate(loki_write_dropped_entries_total{job="syslog-alloy"}[5m]))
+      - record: syslog:write_retries_persec
+        expr: sum(rate(loki_write_batch_retries_total{job="syslog-alloy"}[5m]))
+
+      # Landing in Loki.
+      - record: syslog:loki_lines_received_persec
+        expr: sum(rate(loki_distributor_lines_received_total{job="loki"}[5m]))
+      - record: syslog:loki_bytes_received_persec
+        expr: sum(rate(loki_distributor_bytes_received_total{job="loki"}[5m]))
+      - record: syslog:loki_memory_streams
+        expr: sum(loki_ingester_memory_streams{job="loki"})
+      - record: syslog:loki_memory_chunks
+        expr: sum(loki_ingester_memory_chunks{job="loki"})
+
+  - name: syslog-health
+    rules:
+      # The failure that matters is silence. These are the series to alert on:
+      # zero means either the device went quiet or the pipeline broke, and the
+      # only way to tell those apart is to go look - which is the point.
+      #
+      # Suggested Grafana alert: syslog:lines_read_total_1h == 0 for 30m.
+      - record: syslog:lines_read_total_1h
+        expr: sum(increase(loki_source_file_read_lines_total{job="syslog-alloy"}[1h]))
+      - record: syslog:lines_read_total_24h
+        expr: sum(increase(loki_source_file_read_lines_total{job="syslog-alloy"}[24h]))
+
+      # Component liveness. A down Alloy stops shipping but rsyslog keeps
+      # writing files, so this degrades rather than loses - the files are the
+      # buffer and Alloy replays them on the way back up.
+      - record: syslog:alloy_up
+        expr: max(up{job="syslog-alloy"})
+      - record: syslog:loki_up
+        expr: max(up{job="loki"})
+      # rsyslog is in the host namespace with no exporter of its own; its
+      # liveness shows up here, as lines continuing to appear in the files.
+      - record: syslog:pipeline_up
+        expr: min(up{job=~"syslog-alloy|loki"})
